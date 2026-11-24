@@ -38,17 +38,29 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 const tempUploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs2-demo-'));
 
+const ts = () => new Date().toISOString();
+
+const logInfo = (stage, message, extra = {}) => {
+  const payload = {
+    time: ts(),
+    stage,
+    message,
+    ...extra
+  };
+  console.log(`[${payload.time}][CS2-SERVER][${stage}] ${message}`, Object.keys(extra).length ? JSON.stringify(extra) : '');
+};
+
 const logError = (stage, err, extra = {}) => {
   const details = {
+    time: ts(),
     stage,
-    timestamp: new Date().toISOString(),
     message: err?.message || String(err),
     code: err?.code,
     status: err?.status,
     stack: err?.stack,
     ...extra
   };
-  console.error(`[CS2-SERVER][${stage}]`, JSON.stringify(details, null, 2));
+  console.error(`[${details.time}][CS2-SERVER][${stage}][ERROR]`, JSON.stringify(details, null, 2));
 };
 
 const cleanupFiles = async filePaths => {
@@ -83,7 +95,7 @@ const corsOptions = {
     if (isAllowedOrigin(origin)) {
       callback(null, true);
     } else {
-      console.warn('[CS2-SERVER][CORS] Blocked origin:', origin);
+      logError('cors', new Error(`Origin ${origin} is not allowed by CORS policy`), { origin });
       callback(new Error(`Origin ${origin} is not allowed by CORS policy`));
     }
   },
@@ -98,6 +110,53 @@ const corsOptions = {
 const app = express();
 app.disable('x-powered-by');
 
+// 1. Логирование получения HTTP-запроса: метод, URL и Origin
+app.use((req, res, next) => {
+  const reqId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  req.reqId = reqId;
+  const origin = req.headers.origin || 'none';
+  const contentLength = req.headers['content-length'] || 'unknown';
+
+  logInfo('http-request', `Incoming ${req.method} ${req.originalUrl} from Origin: ${origin}`, {
+    reqId,
+    method: req.method,
+    url: req.originalUrl,
+    origin,
+    contentLength
+  });
+
+  req.on('timeout', () => {
+    logError('http-request-timeout', new Error('Request socket/stream timed out'), {
+      reqId,
+      method: req.method,
+      url: req.originalUrl,
+      origin
+    });
+  });
+
+  res.on('timeout', () => {
+    logError('http-response-timeout', new Error('Response timed out'), {
+      reqId,
+      method: req.method,
+      url: req.originalUrl,
+      origin
+    });
+  });
+
+  res.on('close', () => {
+    if (!res.writableFinished) {
+      logError('http-connection-closed', new Error('Client connection closed before response finished'), {
+        reqId,
+        method: req.method,
+        url: req.originalUrl,
+        origin
+      });
+    }
+  });
+
+  next();
+});
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -110,6 +169,10 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With');
   if (req.method === 'OPTIONS') {
+    logInfo('http-options', `Preflight OPTIONS handled for ${req.originalUrl}`, {
+      reqId: req.reqId,
+      origin: req.headers.origin || 'none'
+    });
     return res.status(204).end();
   }
   next();
@@ -122,6 +185,10 @@ const requireSupabaseAuth = async (req, res, next) => {
     const token = match ? match[1].trim() : '';
 
     if (!token) {
+      logError('auth', new Error('Missing Bearer access_token'), {
+        reqId: req.reqId,
+        path: req.originalUrl
+      });
       return res.status(401).json({
         message: 'Требуется авторизация: отсутствует Bearer access_token в заголовке Authorization.'
       });
@@ -130,6 +197,7 @@ const requireSupabaseAuth = async (req, res, next) => {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       logError('auth', error || new Error('Invalid or expired token'), {
+        reqId: req.reqId,
         path: req.originalUrl
       });
       return res.status(401).json({
@@ -139,9 +207,13 @@ const requireSupabaseAuth = async (req, res, next) => {
 
     req.supabaseUser = data.user;
     req.accessToken = token;
+    logInfo('auth', `Supabase user authenticated: ${data.user.id}`, {
+      reqId: req.reqId,
+      userId: data.user.id
+    });
     next();
   } catch (err) {
-    logError('auth-middleware', err);
+    logError('auth-middleware', err, { reqId: req.reqId });
     return res.status(500).json({
       message: 'Внутренняя ошибка при проверке авторизации Supabase.'
     });
@@ -152,10 +224,17 @@ const storage = multer.diskStorage({
   destination(_req, _file, cb) {
     cb(null, tempUploadDir);
   },
-  filename(_req, file, cb) {
+  filename(req, file, cb) {
     const safeBase = path.basename(file.originalname || 'upload.dem').replace(/[^a-zA-Z0-9._-]/g, '_');
     const uniquePrefix = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    cb(null, `${uniquePrefix}_${safeBase}`);
+    const storedName = `${uniquePrefix}_${safeBase}`;
+    logInfo('multer-file-init', `Receiving file "${file.originalname}" -> "${storedName}"`, {
+      reqId: req.reqId,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      storedName
+    });
+    cb(null, storedName);
   }
 });
 
@@ -170,10 +249,14 @@ const upload = multer({
     fileSize: MAX_UPLOAD_BYTES,
     files: 1
   },
-  fileFilter(_req, file, cb) {
+  fileFilter(req, file, cb) {
     if (!isSupportedDemoName(file.originalname)) {
       const err = new Error('Допускаются только файлы .dem и .dem.zst.');
       err.statusCode = 400;
+      logError('multer-file-filter', err, {
+        reqId: req.reqId,
+        originalname: file.originalname
+      });
       return cb(err);
     }
     cb(null, true);
@@ -207,16 +290,17 @@ const hasZstdCli = async () => {
   }
 };
 
-const decompressZstFile = async (zstPath, outDemPath) => {
+const decompressZstFile = async (zstPath, outDemPath, reqId) => {
   const cliAvailable = await hasZstdCli();
   if (cliAvailable) {
+    logInfo('zstd-unpack', `Decompressing via zstd CLI: ${zstPath} -> ${outDemPath}`, { reqId });
     await execFileAsync('zstd', ['-d', '-f', '--no-progress', zstPath, '-o', outDemPath], {
       maxBuffer: 10 * 1024 * 1024
     });
     return;
   }
 
-  // Fallback через npm-пакет fzstd, если системный бинарник zstd недоступен в контейнере Render
+  logInfo('zstd-unpack', `Decompressing via fzstd library: ${zstPath} -> ${outDemPath}`, { reqId });
   const compressedBuffer = await fs.promises.readFile(zstPath);
   const compressedBytes = new Uint8Array(
     compressedBuffer.buffer,
@@ -232,7 +316,7 @@ const decompressZstFile = async (zstPath, outDemPath) => {
 
 const normalizeNick = value => String(value || '').trim().toLowerCase();
 
-const parseKillsFromDemFile = async (demPath, playerNick) => {
+const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
   const stat = await fs.promises.stat(demPath);
   if (!stat.isFile() || stat.size < 16) {
     throw new Error('Распакованный файл .dem пуст или повреждён.');
@@ -243,10 +327,15 @@ const parseKillsFromDemFile = async (demPath, playerNick) => {
     throw new Error('Файл не содержит корректного заголовка CS2 Source 2 (PBDEMS2).');
   }
 
-  // Проверяем читаемость заголовка демо через @laihoe/demoparser2
+  logInfo('demoparser2', `Parsing demo header and player_death events for "${playerNick}"`, {
+    reqId,
+    demPath,
+    demSizeBytes: stat.size,
+    playerNick
+  });
+
   parseHeader(demPath);
 
-  // Запрашиваем события player_death с полями для определения раунда
   const deathEvents = parseEvent(demPath, 'player_death', ['total_rounds_played', 'game_time', 'round_time']);
   if (!Array.isArray(deathEvents)) {
     throw new Error('Парсер @laihoe/demoparser2 вернул некорректный формат событий player_death.');
@@ -303,7 +392,7 @@ const parseKillsFromDemFile = async (demPath, playerNick) => {
 };
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'cs2-kill-editor-server' });
+  res.status(200).json({ ok: true, service: 'cs2-kill-editor-server', time: ts() });
 });
 
 const handleAnalyzeDemo = async (req, res) => {
@@ -319,12 +408,14 @@ const handleAnalyzeDemo = async (req, res) => {
     const playerNick = typeof req.body?.playerNick === 'string' ? req.body.playerNick.trim() : '';
 
     if (!uploadedFile) {
+      logError('validation', new Error('Missing multipart file "demo"'), { reqId: req.reqId });
       return res.status(400).json({
         message: 'Не получен файл в поле multipart "demo".'
       });
     }
 
     if (!playerNick) {
+      logError('validation', new Error('Missing required field "playerNick"'), { reqId: req.reqId });
       return res.status(400).json({
         message: 'Не указан обязательный параметр "playerNick".'
       });
@@ -335,29 +426,68 @@ const handleAnalyzeDemo = async (req, res) => {
     let workingDemPath = uploadedFile.path;
 
     if (isZst) {
+      // 4. Начало распаковки .dem.zst
+      logInfo('decompress-start', `Starting .dem.zst decompression for "${originalName}" (${uploadedFile.size} bytes)`, {
+        reqId: req.reqId,
+        userId: req.supabaseUser.id,
+        fileName: originalName,
+        fileSize: uploadedFile.size
+      });
+
       const validZst = await hasMagicBytes(uploadedFile.path, ZSTD_MAGIC);
       if (!validZst) {
+        const invalidZstErr = new Error('Файл имеет расширение .dem.zst, но не содержит валидный заголовок Zstandard.');
+        logError('decompress-invalid-magic', invalidZstErr, {
+          reqId: req.reqId,
+          fileName: originalName
+        });
         return res.status(400).json({
-          message: 'Файл имеет расширение .dem.zst, но не содержит валидный заголовок Zstandard.'
+          message: invalidZstErr.message
         });
       }
 
       const unpackedDemPath = path.join(tempUploadDir, `${path.basename(uploadedFile.path, '.zst')}_${Date.now()}.dem`);
       filesToCleanup.push(unpackedDemPath);
 
-      console.log(
-        `[CS2-SERVER][DECOMPRESS] Start zstd unpack: file=${originalName}, size=${uploadedFile.size}, user=${req.supabaseUser.id}`
-      );
-      await decompressZstFile(uploadedFile.path, unpackedDemPath);
+      const decompressStart = Date.now();
+      await decompressZstFile(uploadedFile.path, unpackedDemPath, req.reqId);
       workingDemPath = unpackedDemPath;
+
+      const unpackedStat = await fs.promises.stat(unpackedDemPath);
+      // 5. Завершение распаковки
+      logInfo('decompress-done', `Finished .dem.zst decompression -> "${path.basename(unpackedDemPath)}" (${unpackedStat.size} bytes) in ${Date.now() - decompressStart} ms`, {
+        reqId: req.reqId,
+        userId: req.supabaseUser.id,
+        sourceFile: originalName,
+        unpackedFile: path.basename(unpackedDemPath),
+        unpackedSizeBytes: unpackedStat.size,
+        durationMs: Date.now() - decompressStart
+      });
     }
 
-    const kills = await parseKillsFromDemFile(workingDemPath, playerNick);
+    // 6. Начало парсинга через @laihoe/demoparser2
+    logInfo('parse-start', `Starting @laihoe/demoparser2 analysis for playerNick="${playerNick}"`, {
+      reqId: req.reqId,
+      userId: req.supabaseUser.id,
+      fileName: originalName,
+      playerNick
+    });
+
+    const parseStart = Date.now();
+    const kills = await parseKillsFromDemFile(workingDemPath, playerNick, req.reqId);
+    const parseDurationMs = Date.now() - parseStart;
     const elapsedMs = Date.now() - startedAt;
 
-    console.log(
-      `[CS2-SERVER][ANALYZE_OK] user=${req.supabaseUser.id}, nick="${playerNick}", file=${originalName}, kills=${kills.length}, elapsedMs=${elapsedMs}`
-    );
+    // 7. Завершение парсинга и количество найденных убийств
+    logInfo('parse-done', `Completed @laihoe/demoparser2 analysis: found ${kills.length} kills for "${playerNick}" in ${parseDurationMs} ms (total ${elapsedMs} ms)`, {
+      reqId: req.reqId,
+      userId: req.supabaseUser.id,
+      nick: playerNick,
+      file: originalName,
+      killsCount: kills.length,
+      parseDurationMs,
+      totalElapsedMs: elapsedMs
+    });
 
     return res.status(200).json({
       ok: true,
@@ -368,11 +498,14 @@ const handleAnalyzeDemo = async (req, res) => {
       kills
     });
   } catch (err) {
+    // 8. Все ошибки и тайм-ауты
     logError('analyze-demo', err, {
+      reqId: req.reqId,
       userId: req.supabaseUser?.id,
       fileName: req.file?.originalname,
       fileSize: req.file?.size,
-      playerNick: req.body?.playerNick
+      playerNick: req.body?.playerNick,
+      elapsedMs: Date.now() - startedAt
     });
 
     const status = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
@@ -388,35 +521,59 @@ app.post(
   '/api/v1/demos/analyze',
   requireSupabaseAuth,
   (req, res, next) => {
+    // 2. Начало загрузки файла через Multer
+    logInfo('multer-upload-start', `Starting Multer upload for ${req.originalUrl}`, {
+      reqId: req.reqId,
+      userId: req.supabaseUser?.id,
+      contentLength: req.headers['content-length'] || 'unknown'
+    });
+
+    const uploadStart = Date.now();
+
     upload.single('demo')(req, res, err => {
-      if (!err) return next();
+      if (err) {
+        logError('multer-upload-error', err, {
+          reqId: req.reqId,
+          userId: req.supabaseUser?.id,
+          contentLength: req.headers['content-length'] || 'unknown',
+          durationMs: Date.now() - uploadStart
+        });
 
-      logError('multer-upload', err, {
-        userId: req.supabaseUser?.id,
-        contentLength: req.headers['content-length']
-      });
-
-      if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({
-            message: `Размер файла превышает допустимый лимит (${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ).`
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({
+              message: `Размер файла превышает допустимый лимит (${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ).`
+            });
+          }
+          return res.status(400).json({
+            message: `Ошибка загрузки файла (${err.code}): ${err.message}`
           });
         }
-        return res.status(400).json({
-          message: `Ошибка загрузки файла (${err.code}): ${err.message}`
+
+        return res.status(err.statusCode || 400).json({
+          message: err.message || 'Некорректный multipart/form-data запрос.'
         });
       }
 
-      return res.status(err.statusCode || 400).json({
-        message: err.message || 'Некорректный multipart/form-data запрос.'
+      // 3. Завершение загрузки: имя и размер файла
+      logInfo('multer-upload-done', `Multer upload completed: file="${req.file?.originalname || 'none'}", size=${req.file?.size ?? 0} bytes in ${Date.now() - uploadStart} ms`, {
+        reqId: req.reqId,
+        userId: req.supabaseUser?.id,
+        fileName: req.file?.originalname || null,
+        storedPath: req.file?.path || null,
+        fileSizeBytes: req.file?.size ?? 0,
+        playerNick: req.body?.playerNick || null,
+        durationMs: Date.now() - uploadStart
       });
+
+      return next();
     });
   },
   handleAnalyzeDemo
 );
 
-app.use((err, _req, res, _next) => {
-  logError('unhandled-express', err);
+app.use((err, req, res, _next) => {
+  logError('unhandled-express', err, { reqId: req?.reqId });
   const status = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
   res.status(status).json({
     message: err?.message || 'Внутренняя ошибка сервера.'
@@ -432,11 +589,22 @@ process.on('uncaughtException', err => {
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(
-    `[CS2-SERVER][START] Listening on 0.0.0.0:${PORT}, node=${process.version}, tempDir=${tempUploadDir}, maxUploadMB=${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}`
-  );
+  logInfo('server-start', `Listening on 0.0.0.0:${PORT} (node=${process.version})`, {
+    port: PORT,
+    nodeVersion: process.version,
+    tempDir: tempUploadDir,
+    maxUploadMB: Math.round(MAX_UPLOAD_BYTES / (1024 * 1024)),
+    requestTimeoutMs: REQUEST_TIMEOUT_MS
+  });
 });
 
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 10000;
 server.keepAliveTimeout = 65000;
+
+server.on('timeout', socket => {
+  logError('server-timeout', new Error('HTTP server request/socket timed out'), {
+    remoteAddress: socket?.remoteAddress,
+    remotePort: socket?.remotePort
+  });
+});
