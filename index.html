@@ -1061,7 +1061,7 @@
         <p class="sub">Загрузи запись матча CS2 (<code>.dem</code>) или сжатый архив FACEIT (<code>.dem.zst</code>) и укажи свой игровой ник.</p>
 
         <div class="notice">
-          <strong>Как обрабатываются <code>.dem.zst</code>:</strong> архивы FACEIT сжаты алгоритмом Zstandard. Файлы не сохраняются в <code>localStorage</code>. В основном режиме <code>.dem.zst</code> передаётся на сервер, где распаковывается в <code>.dem</code>, проверяется по заголовку Source 2 (<code>PBDEMS2</code>) и передаётся парсеру CS2 demo. Для небольших архивов (до 95 МБ) также доступна локальная проверка/распаковка через Zstandard Web Worker без блокировки интерфейса.
+          <strong>Как обрабатываются <code>.dem.zst</code>:</strong> архивы FACEIT сжаты алгоритмом Zstandard. Файлы не сохраняются в <code>localStorage</code>. В основном режиме <code>.dem.zst</code> передаётся на сервер Render (<code>cs2-kill-editor-server.onrender.com</code>), где распаковывается в <code>.dem</code>, проверяется по заголовку Source 2 (<code>PBDEMS2</code>) и передаётся парсеру CS2 demo. Для небольших архивов (до 95 МБ) также доступна локальная проверка/распаковка через Zstandard Web Worker без блокировки интерфейса.
         </div>
 
         <form id="demoForm" novalidate>
@@ -1129,7 +1129,7 @@
               <span id="statusDot" class="dot-pulse"></span>
               <span id="statusText">Ожидание выбора .dem или .dem.zst файла и ника</span>
             </div>
-            <span id="serverStatusChip" class="endpoint-chip">Сервер парсинга: не подключён</span>
+            <span id="serverStatusChip" class="endpoint-chip">Сервер парсинга: Render</span>
           </div>
 
           <div id="progressWrap" class="progress-wrap hidden">
@@ -1179,7 +1179,7 @@
           <div id="demoResultsArea">
             <div class="empty-state">
               <strong>Данных анализа пока нет</strong>
-              <p>Выберите <code>.dem</code> или сжатый архив FACEIT <code>.dem.zst</code>, укажите игровой ник и нажмите <strong>Start Analysis</strong>. После подключения сервера здесь появятся найденные убийства, тики/тайминги раундов и подготовка 3D-повторов.</p>
+              <p>Выберите <code>.dem</code> или сжатый архив FACEIT <code>.dem.zst</code>, укажите игровой ник и нажмите <strong>Start Analysis</strong>. Результаты парсинга с сервера Render появятся здесь.</p>
             </div>
           </div>
         </div>
@@ -1319,7 +1319,7 @@
       </div>
 
       <div class="status-bar">
-        Аккаунт подключён. Поддержка загрузки .dem и .dem.zst активна; серверная распаковка Zstandard, парсинг CS2 demo и рендер MP4 подключаются через выделенный backend.
+        Аккаунт подключён. Подключён сервер Render (cs2-kill-editor-server.onrender.com) для загрузки и анализа .dem / .dem.zst; рендер MP4 и замена скинов остаются в разработке.
       </div>
       <div id="dashMsg" class="msg" role="status"></div>
     </section>
@@ -1336,15 +1336,14 @@
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_M-Dlo8GKZ4TV_NwcPW8XuQ_7AyVBP5n';
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-  // Конфигурация внешнего сервера обработки CS2 .dem и .dem.zst файлов.
-  // Укажите публичный HTTPS URL вашего backend-сервера (например, 'https://api.yourdomain.com'), когда он будет развёрнут.
+  // Конфигурация сервера обработки CS2 .dem и .dem.zst файлов на Render.
   // Никогда не храните здесь секретные ключи API или Supabase service_role key.
   const DEMO_PROCESSOR_CONFIG = {
-    apiBaseUrl: '',
+    apiBaseUrl: 'https://cs2-kill-editor-server.onrender.com',
     analyzePath: '/api/v1/demos/analyze',
     maxCompressedSizeBytes: 800 * 1024 * 1024,   // 800 МБ для .dem.zst и .dem при отправке на сервер
     maxBrowserWorkerZstBytes: 95 * 1024 * 1024, // 95 МБ лимит для безопасной распаковки в браузере (защита от OOM на iPhone)
-    requestTimeoutMs: 180000
+    requestTimeoutMs: 240000                     // 4 мин с учётом холодного старта Render и разбора демо
   };
 
   // Магические байты форматов Zstandard и CS2 Source 2 Demo
@@ -1420,10 +1419,18 @@
   const updateServerChip = () => {
     const chip = $('serverStatusChip');
     if (!chip) return;
-    if (DEMO_PROCESSOR_CONFIG.apiBaseUrl.trim()) {
-      chip.textContent = 'Сервер парсинга: настроен';
-      chip.style.color = 'var(--lime)';
-      chip.style.borderColor = 'rgba(200, 255, 69, 0.35)';
+    const raw = DEMO_PROCESSOR_CONFIG.apiBaseUrl.trim();
+    if (raw) {
+      try {
+        const host = new URL(raw).hostname;
+        chip.textContent = `Сервер: ${host}`;
+        chip.style.color = 'var(--lime)';
+        chip.style.borderColor = 'rgba(200, 255, 69, 0.35)';
+      } catch {
+        chip.textContent = 'Сервер парсинга: настроен';
+        chip.style.color = 'var(--lime)';
+        chip.style.borderColor = 'rgba(200, 255, 69, 0.35)';
+      }
     } else {
       chip.textContent = 'Сервер парсинга: не подключён';
       chip.style.color = 'var(--muted)';
@@ -1707,18 +1714,35 @@
     }
   });
 
+  const extractKillsArray = payload => {
+    if (!payload || typeof payload !== 'object') return [];
+    const candidates = [
+      payload.kills,
+      payload.events,
+      payload.highlights,
+      payload.data?.kills,
+      payload.data?.events,
+      payload.result?.kills,
+      payload.result?.events
+    ];
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) return candidate;
+    }
+    return [];
+  };
+
   const renderAnalysisResults = data => {
     const area = $('demoResultsArea');
     const countBadge = $('resultsCount');
     area.innerHTML = '';
 
-    const kills = Array.isArray(data?.kills) ? data.kills : [];
+    const kills = extractKillsArray(data);
     countBadge.textContent = `${kills.length} событий`;
 
     if (kills.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.innerHTML = '<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил распаковку и разбор демо, но событий убийств для данного игрока не обнаружено.</p>';
+      empty.innerHTML = '<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил обработку демо, но событий убийств для данного игрока в ответе не обнаружено.</p>';
       area.appendChild(empty);
       return;
     }
@@ -1731,21 +1755,55 @@
       row.className = 'kill-row';
 
       const left = document.createElement('div');
-      const roundText = kill.round !== undefined ? `Раунд ${kill.round}` : `Фраг #${idx + 1}`;
-      const timeText = kill.matchTime || (kill.tick !== undefined ? `Тик ${kill.tick}` : 'Тайминг получен');
-      const weaponText = kill.weapon ? ` · ${kill.weapon}` : '';
-      const victimText = kill.victim ? ` → ${kill.victim}` : '';
+      const roundVal = kill.round ?? kill.round_number ?? kill.roundNum;
+      const roundText = roundVal !== undefined && roundVal !== null ? `Раунд ${roundVal}` : `Фраг #${idx + 1}`;
+
+      const tickVal = kill.tick ?? kill.tick_number ?? kill.demo_tick;
+      const timeVal = kill.matchTime ?? kill.match_time ?? kill.time ?? kill.timestamp;
+      const timeText = timeVal
+        ? String(timeVal)
+        : (tickVal !== undefined && tickVal !== null ? `Тик ${tickVal}` : 'Тайминг получен');
+
+      const weaponVal = kill.weapon ?? kill.weapon_name ?? kill.gun;
+      const victimVal = kill.victim ?? kill.victim_nick ?? kill.victimNick ?? kill.target;
+
+      const weaponText = weaponVal ? ` · ${weaponVal}` : '';
+      const victimText = victimVal ? ` → ${victimVal}` : '';
       left.textContent = `${roundText} · ${timeText}${weaponText}${victimText}`;
 
+      const isReplayReady = Boolean(kill.replayReady ?? kill.replay_ready);
       const right = document.createElement('span');
       right.className = 'status-pill';
-      right.textContent = kill.replayReady ? '3D-повтор готов к рендеру' : 'Данные для 3D-повтора подготовлены';
+      right.textContent = isReplayReady ? '3D-повтор готов к рендеру' : 'Данные для 3D-повтора подготовлены';
 
       row.append(left, right);
       list.appendChild(row);
     });
 
     area.appendChild(list);
+  };
+
+  const parseErrorMessage = (rawText, statusCode) => {
+    if (rawText) {
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed && typeof parsed === 'object') {
+          const detailStr = typeof parsed.detail === 'string'
+            ? parsed.detail
+            : (Array.isArray(parsed.detail)
+              ? parsed.detail.map(d => d?.msg || JSON.stringify(d)).join('; ')
+              : '');
+          const msg = parsed.message || detailStr || parsed.error || parsed.err;
+          if (msg) return String(msg);
+        }
+      } catch {
+        const trimmed = rawText.trim();
+        if (trimmed && trimmed.length < 300 && !trimmed.startsWith('<!doctype') && !trimmed.startsWith('<html')) {
+          return trimmed;
+        }
+      }
+    }
+    return `Сервер обработки вернул ошибку (HTTP ${statusCode}).`;
   };
 
   // Загрузка с отслеживанием реального прогресса через XMLHttpRequest
@@ -1766,26 +1824,33 @@
       };
 
       xhr.onload = () => {
+        const rawText = xhr.responseText || '';
         let payload = null;
         try {
-          payload = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+          payload = rawText ? JSON.parse(rawText) : null;
         } catch {
           payload = null;
         }
 
         if (xhr.status >= 200 && xhr.status < 300) {
+          if (rawText && payload === null) {
+            reject(new Error('Сервер вернул некорректный JSON-ответ.'));
+            return;
+          }
           resolve(payload || {});
         } else {
-          reject(new Error(payload?.message || `Сервер обработки вернул ошибку (${xhr.status}).`));
+          const err = new Error(parseErrorMessage(rawText, xhr.status));
+          err.status = xhr.status;
+          reject(err);
         }
       };
 
       xhr.onerror = () => {
-        reject(new Error('Сетевая ошибка при передаче файла на сервер обработки.'));
+        reject(new Error('Сетевая ошибка при передаче файла на сервер Render (проверьте интернет-соединение, CORS или доступность сервера).'));
       };
 
       xhr.ontimeout = () => {
-        reject(new Error('Превышено время ожидания ответа от сервера обработки демо.'));
+        reject(new Error('Превышено время ожидания ответа от сервера Render (возможно, сервер просыпался после простоя или файл слишком большой).'));
       };
 
       xhr.send(formData);
@@ -1859,6 +1924,16 @@
       return;
     }
 
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const accessToken = session?.access_token || '';
+    if (sessionError || !accessToken) {
+      setPipelineStepState('stepValidate', 'done');
+      setPipelineStepState('stepUpload', 'failed');
+      setProcessingStatus('Требуется авторизация (нет access token)', 'error');
+      setMsg('demoMsg', 'Сессия Supabase не найдена или истекла. Войдите в аккаунт заново для отправки демо на сервер.', 'error');
+      return;
+    }
+
     isBusy = true;
     $('startAnalysisBtn').disabled = true;
     $('localUnpackBtn').disabled = true;
@@ -1868,14 +1943,13 @@
     try {
       let uploadBlob = selectedDemoMeta.file;
       let uploadFileName = selectedDemoMeta.file.name;
-      let compressionType = selectedDemoMeta.kind === 'dem.zst' ? 'zstd' : 'none';
+      const isZst = selectedDemoMeta.kind === 'dem.zst';
 
       // Если пользователь выбрал распаковку в браузере через Web Worker для .dem.zst
-      if (selectedDemoMeta.kind === 'dem.zst' && $('zstHandlingMode').value === 'worker') {
+      if (isZst && $('zstHandlingMode').value === 'worker') {
         if (selectedDemoMeta.unpackedDemBlob) {
           uploadBlob = selectedDemoMeta.unpackedDemBlob;
           uploadFileName = selectedDemoMeta.unpackedDemName;
-          compressionType = 'none';
           setPipelineStepState('stepDecompress', 'done');
         } else {
           setPipelineStepState('stepDecompress', 'active');
@@ -1887,37 +1961,36 @@
           selectedDemoMeta.unpackedDemBlob = blob;
           uploadBlob = blob;
           uploadFileName = selectedDemoMeta.unpackedDemName;
-          compressionType = 'none';
           setPipelineStepState('stepDecompress', 'done');
           $('selectedFileBadge').textContent = `Распакован (${formatBytes(unpackedSize)})`;
           $('selectedFileBadge').className = 'badge-ok';
         }
       }
 
-      setPipelineStepState('stepUpload', 'active');
-      setProcessingStatus('Передача файла на сервер обработки…', 'working');
-      setProgress(true, 0, 'Передача файла на сервер…');
-      setMsg('demoMsg', 'Передаём файл на сервер. Не закрывайте вкладку…');
-
-      const { data: { session } } = await supabase.auth.getSession();
       const formData = new FormData();
       formData.append('demo', uploadBlob, uploadFileName);
       formData.append('playerNick', nick);
-      formData.append('compression', compressionType);
-      if (currentUser?.id) {
-        formData.append('userId', currentUser.id);
-      }
+
+      const analyzePath = DEMO_PROCESSOR_CONFIG.analyzePath.startsWith('/')
+        ? DEMO_PROCESSOR_CONFIG.analyzePath
+        : `/${DEMO_PROCESSOR_CONFIG.analyzePath}`;
+      const targetUrl = `${baseUrl}${analyzePath}`;
+
+      setPipelineStepState('stepUpload', 'active');
+      setProcessingStatus('Передача файла на сервер Render…', 'working');
+      setProgress(true, 0, 'Передача файла на сервер Render…');
+      setMsg('demoMsg', 'Передаём файл на сервер Render (если сервер спал, первый ответ может занять до минуты). Не закрывайте вкладку…');
 
       const result = await uploadDemoWithProgress({
-        url: `${baseUrl}${DEMO_PROCESSOR_CONFIG.analyzePath}`,
-        token: session?.access_token || '',
+        url: targetUrl,
+        token: accessToken,
         formData,
         timeoutMs: DEMO_PROCESSOR_CONFIG.requestTimeoutMs,
         onUploadProgress: (pct, loaded, total) => {
           setProgress(true, pct, `Загрузка на сервер: ${formatBytes(loaded)} из ${formatBytes(total)}`);
           if (pct >= 100) {
             setPipelineStepState('stepUpload', 'done');
-            if (compressionType === 'zstd') {
+            if (isZst && $('zstHandlingMode').value !== 'worker') {
               setPipelineStepState('stepDecompress', 'active');
               setProcessingStatus('Сервер распаковывает Zstandard и проверяет .dem…', 'working');
             } else {
@@ -1934,7 +2007,7 @@
       setPipelineStepState('stepParse', 'done');
       setPipelineStepState('stepReplay', result?.replayPrepared ? 'done' : 'active');
       setProcessingStatus('Распаковка и анализ демо завершены сервером', 'ready');
-      setMsg('demoMsg', 'Готово: демозапись проверена и разобрана сервером.', 'ok');
+      setMsg('demoMsg', 'Готово: демозапись проверена и разобрана сервером Render.', 'ok');
       renderAnalysisResults(result);
     } catch (err) {
       setProgress(false);
