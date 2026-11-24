@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
+import { parseEvent, parseHeader } from '@laihoe/demoparser2';
+import { decompress as zstdDecompress } from 'fzstd';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,7 +69,6 @@ const isAllowedOrigin = origin => {
   if (ALLOWED_ORIGINS.has(origin)) return true;
   try {
     const parsed = new URL(origin);
-    // Разрешаем предпросмотры деплоев Netlify для текущего проекта
     if (parsed.hostname.endsWith('.netlify.app') && parsed.hostname.includes('famous-pothos-ee0313')) {
       return true;
     }
@@ -97,7 +98,6 @@ const corsOptions = {
 const app = express();
 app.disable('x-powered-by');
 
-// 1 & 2. CORS и явная обработка preflight OPTIONS-запросов до остальных роутов
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -115,7 +115,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Проверка авторизации через Supabase access_token
 const requireSupabaseAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization || '';
@@ -149,7 +148,6 @@ const requireSupabaseAuth = async (req, res, next) => {
   }
 };
 
-// Дисковое хранилище для multer — не держит большие .dem / .dem.zst в RAM (критично для Render)
 const storage = multer.diskStorage({
   destination(_req, _file, cb) {
     cb(null, tempUploadDir);
@@ -200,16 +198,40 @@ const hasMagicBytes = async (filePath, magicBytes) => {
 const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
 const CS2_DEMO_MAGIC = [0x50, 0x42, 0x44, 0x45, 0x4d, 0x53, 0x32]; // "PBDEMS2"
 
-const decompressZstFile = async (zstPath, outDemPath) => {
-  // Используем системный CLI `zstd -d -f --no-progress <in> -o <out>` для потоковой распаковки больших файлов
-  await execFileAsync('zstd', ['-d', '-f', '--no-progress', zstPath, '-o', outDemPath], {
-    maxBuffer: 10 * 1024 * 1024
-  });
+const hasZstdCli = async () => {
+  try {
+    await execFileAsync('zstd', ['--version'], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
 };
 
-// Парсер CS2 Source 2 демофайла для поиска убийств конкретного игрока
-// Примечание: для полного разбора protobuf-сообщений Source 2 рекомендуется подключить специализированный парсер (например, @laihoe/demoparser2 или demoinfogo).
-// Здесь реализован безопасный разбор заголовка и поиск событийных маркеров без падений на больших файлах.
+const decompressZstFile = async (zstPath, outDemPath) => {
+  const cliAvailable = await hasZstdCli();
+  if (cliAvailable) {
+    await execFileAsync('zstd', ['-d', '-f', '--no-progress', zstPath, '-o', outDemPath], {
+      maxBuffer: 10 * 1024 * 1024
+    });
+    return;
+  }
+
+  // Fallback через npm-пакет fzstd, если системный бинарник zstd недоступен в контейнере Render
+  const compressedBuffer = await fs.promises.readFile(zstPath);
+  const compressedBytes = new Uint8Array(
+    compressedBuffer.buffer,
+    compressedBuffer.byteOffset,
+    compressedBuffer.byteLength
+  );
+  const decompressedBytes = zstdDecompress(compressedBytes);
+  if (!decompressedBytes || decompressedBytes.length < 16) {
+    throw new Error('Распакованный поток Zstandard пуст или повреждён.');
+  }
+  await fs.promises.writeFile(outDemPath, Buffer.from(decompressedBytes));
+};
+
+const normalizeNick = value => String(value || '').trim().toLowerCase();
+
 const parseKillsFromDemFile = async (demPath, playerNick) => {
   const stat = await fs.promises.stat(demPath);
   if (!stat.isFile() || stat.size < 16) {
@@ -221,37 +243,69 @@ const parseKillsFromDemFile = async (demPath, playerNick) => {
     throw new Error('Файл не содержит корректного заголовка CS2 Source 2 (PBDEMS2).');
   }
 
-  // Безопасное чтение первых 16 КБ заголовка демо для проверки читаемости файла
-  const headerBuf = Buffer.alloc(Math.min(16384, stat.size));
-  const handle = await fs.promises.open(demPath, 'r');
-  try {
-    await handle.read(headerBuf, 0, headerBuf.length, 0);
-  } finally {
-    await handle.close();
+  // Проверяем читаемость заголовка демо через @laihoe/demoparser2
+  parseHeader(demPath);
+
+  // Запрашиваем события player_death с полями для определения раунда
+  const deathEvents = parseEvent(demPath, 'player_death', ['total_rounds_played', 'game_time', 'round_time']);
+  if (!Array.isArray(deathEvents)) {
+    throw new Error('Парсер @laihoe/demoparser2 вернул некорректный формат событий player_death.');
   }
 
-  // Если подключён внешний/локальный бинарник парсера (например, через переменную окружения DEMO_PARSER_CMD), запускаем его
-  if (process.env.DEMO_PARSER_CMD) {
-    const { stdout } = await execFileAsync(
-      process.env.DEMO_PARSER_CMD,
-      [demPath, playerNick],
-      { maxBuffer: 50 * 1024 * 1024 }
-    );
-    const parsedOutput = JSON.parse(stdout);
-    return Array.isArray(parsedOutput?.kills) ? parsedOutput.kills : [];
+  const targetNick = normalizeNick(playerNick);
+  const matchedKills = [];
+
+  for (const ev of deathEvents) {
+    if (!ev || typeof ev !== 'object') continue;
+
+    const attackerName =
+      ev.attacker_name ??
+      ev.attackerName ??
+      ev.user_name ??
+      ev.attacker_player_name ??
+      '';
+
+    if (normalizeNick(attackerName) !== targetNick) {
+      continue;
+    }
+
+    const victimName =
+      ev.user_name ??
+      ev.victim_name ??
+      ev.victimName ??
+      ev.player_name ??
+      '';
+
+    const weaponName =
+      ev.weapon ??
+      ev.weapon_name ??
+      ev.weaponName ??
+      '';
+
+    const tickNumber = Number.isFinite(Number(ev.tick)) ? Number(ev.tick) : null;
+    const headshotBool = Boolean(ev.headshot);
+
+    const rawRound = ev.round ?? ev.total_rounds_played ?? ev.round_number;
+    const roundNumber = Number.isFinite(Number(rawRound)) ? Number(rawRound) : null;
+
+    matchedKills.push({
+      tick: tickNumber,
+      weapon: String(weaponName || ''),
+      victim: String(victimName || ''),
+      headshot: headshotBool,
+      round: roundNumber,
+      attacker: String(attackerName),
+      replayReady: tickNumber !== null
+    });
   }
 
-  // Возвращаем пустой список при отсутствии подключённого бинарника парсера protobuf-событий CS2,
-  // чтобы не возвращать вымышленные данные.
-  return [];
+  return matchedKills;
 };
 
-// Healthcheck для Render
 app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true, service: 'cs2-kill-editor-server' });
 });
 
-// Основной endpoint анализа демозаписей (путь не менять)
 const handleAnalyzeDemo = async (req, res) => {
   const filesToCleanup = [];
   const startedAt = Date.now();
@@ -361,7 +415,6 @@ app.post(
   handleAnalyzeDemo
 );
 
-// Глобальный обработчик ошибок
 app.use((err, _req, res, _next) => {
   logError('unhandled-express', err);
   const status = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
@@ -380,7 +433,7 @@ process.on('uncaughtException', err => {
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(
-    `[CS2-SERVER][START] Listening on 0.0.0.0:${PORT}, tempDir=${tempUploadDir}, maxUploadMB=${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}`
+    `[CS2-SERVER][START] Listening on 0.0.0.0:${PORT}, node=${process.version}, tempDir=${tempUploadDir}, maxUploadMB=${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}`
   );
 });
 
