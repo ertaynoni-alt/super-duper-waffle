@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="CS2 Kill Editor — turn your FACEIT match demos into first-person highlight clips.">
+<title>CS2 Kill Editor — Your match. Your highlights.</title>
+<style>
+:root{--bg:#0b0d12;--panel:#131722;--muted:#9aa4b5;--text:#f4f6fb;--accent:#c8ff45;--line:#252c3a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% 0%,#26331b 0,transparent 32%),var(--bg);color:var(--text);font:16px/1.6 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{width:min(1120px,92%);margin:auto}.nav{display:flex;justify-content:space-between;align-items:center;padding:26px 0;border-bottom:1px solid var(--line)}
+.logo{font-weight:900;letter-spacing:-.04em}.logo span{color:var(--accent)}.badge{font-size:12px;color:var(--accent);border:1px solid #526b2b;border-radius:99px;padding:5px 10px}
+.hero{padding:88px 0 70px;display:grid;grid-template-columns:1.15fr .85fr;gap:50px;align-items:center}
+.eyebrow{color:var(--accent);text-transform:uppercase;letter-spacing:.16em;font-size:12px;font-weight:800}
+h1{font-size:clamp(42px,6vw,76px);line-height:.98;letter-spacing:-.06em;margin:18px 0 24px}
+p{color:var(--muted);margin:0 0 22px}.hero p{font-size:18px;max-width:590px}
+.btn{display:inline-block;background:var(--accent);color:#11160a;text-decoration:none;padding:13px 20px;border-radius:9px;font-weight:850}
+.mock{background:linear-gradient(145deg,#1b2230,#10141d);border:1px solid #30394a;border-radius:18px;padding:22px;box-shadow:0 30px 90px #0008}
+.mocktop{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-bottom:18px}
+.screen{height:205px;border-radius:10px;background:linear-gradient(130deg,#354638,#17251e 55%,#283346);position:relative;overflow:hidden}
+.screen:before,.screen:after{content:"";position:absolute;border:2px solid var(--accent);width:70px;height:92px;left:28%;top:34px;border-radius:5px}
+.screen:after{left:65%;top:65px;width:54px;height:75px;border-color:#fff}
+.cross{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%)}
+.cross:before,.cross:after{content:"";position:absolute;background:#fff}.cross:before{width:18px;height:1px;top:8px}.cross:after{height:18px;width:1px;left:8px}
+.timeline{height:8px;background:#303849;border-radius:9px;margin:18px 0 8px;overflow:hidden}.timeline i{display:block;width:68%;height:100%;background:var(--accent)}
+.stats{display:flex;gap:18px;color:var(--muted);font-size:12px}.stats b{color:var(--text)}
+section{padding:48px 0}.section-title{font-size:32px;letter-spacing:-.04em;margin:0 0 10px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.num{color:var(--accent);font-weight:900;font-size:13px}.card h3{margin:12px 0 8px}.card p{font-size:14px;margin:0}
+.notice{border:1px solid #3a442d;background:#171e12;border-radius:12px;padding:18px 20px;color:#cbd5bd;font-size:14px}
+footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--muted);font-size:13px}
+@media(max-width:760px){.hero{grid-template-columns:1fr;padding:60px 0 35px}.cards{grid-template-columns:1fr}.mock{max-width:560px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="nav"><div class="logo">CS2 <span>KILL EDITOR</span></div><div class="badge">PROJECT PREVIEW</div></header>
+<main>
+<div class="hero">
+<div>
+<div class="eyebrow">Counter-Strike 2 • Match highlights</div>
+<h1>Your match.<br><span style="color:var(--accent)">Your highlights.</span></h1>
+<p>A planned tool for turning FACEIT CS2 match demos into first-person kill clips. Paste a match link, find your best moments, and build a highlight reel.</p>
+<a class="btn" href="#how">See how it works</a>
+</div>
+<div class="mock" aria-label="Illustrative preview of a gameplay highlight editor">
+<div class="mocktop"><span>HIGHLIGHT PREVIEW</span><span>DEMO UI</span></div>
+<div class="screen"><div class="cross"></div></div>
+<div class="timeline"><i></i></div>
+<div class="stats"><span><b>POV</b> First person</span><span><b>CLIPS</b> Kill moments</span><span><b>EXPORT</b> MP4 planned</span></div>
+</div>
+</div>
+<section id="how">
+<div class="eyebrow">Simple workflow</div><h2 class="section-title">From match link to highlight reel</h2>
+<div class="cards">
+<div class="card"><div class="num">01 / MATCH</div><h3>Paste your FACEIT link</h3><p>Choose a completed CS2 match and identify your player profile.</p></div>
+<div class="card"><div class="num">02 / FIND</div><h3>Detect your kills</h3><p>Locate your kill events and prepare first-person segments around each moment.</p></div>
+<div class="card"><div class="num">03 / EXPORT</div><h3>Create your montage</h3><p>Review the clips, choose your favourites, and export a combined video.</p></div>
+</div>
+</section>
+<section><div class="notice"><strong>Development status:</strong> This is a project landing-page preview, not a functioning video service yet. Automatic demo retrieval depends on FACEIT API access and permitted demo-download methods. No FACEIT affiliation or endorsement is implied.</div></section>
+</main>
+<footer>© 2026 CS2 Kill Editor • Independent community project • Not affiliated with FACEIT or Valve.</footer>
+</div>
+</body></html>
