@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CS2 Kill Editor — личный кабинет, трекер матчей FACEIT и будущий редактор хайлайтов CS2.">
+  <meta name="description" content="CS2 Kill Editor — личный кабинет, разбор .dem файлов, трекер матчей FACEIT и будущий редактор хайлайтов CS2.">
   <title>CS2 Kill Editor</title>
   <style>
     :root {
@@ -18,6 +18,8 @@
       --line: #283448;
       --red: #ff7777;
       --red-soft: rgba(255, 119, 119, 0.14);
+      --amber: #ffd166;
+      --amber-soft: rgba(255, 209, 102, 0.14);
     }
 
     * {
@@ -33,7 +35,7 @@
     }
 
     .wrap {
-      width: min(1080px, 92%);
+      width: min(1120px, 92%);
       margin: auto;
     }
 
@@ -72,7 +74,7 @@
     }
 
     .hero {
-      max-width: 740px;
+      max-width: 760px;
       margin-bottom: 32px;
     }
 
@@ -117,7 +119,7 @@
 
     h3 {
       margin: 0 0 6px;
-      font-size: 18px;
+      font-size: 19px;
       letter-spacing: -0.015em;
     }
 
@@ -143,7 +145,7 @@
       border-radius: 9px;
       padding: 13px;
       color: var(--text);
-      font: 15px/1.35 inherit;
+      font: 16px/1.35 inherit;
       outline: none;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
@@ -156,16 +158,23 @@
 
     button {
       border: 0;
-      border-radius: 9px;
-      padding: 12px 16px;
+      border-radius: 10px;
+      padding: 13px 18px;
       font: 700 14px/1.2 inherit;
       cursor: pointer;
       transition: transform 0.12s ease, opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
       touch-action: manipulation;
+      min-height: 46px;
     }
 
     button:active {
       transform: scale(0.985);
+    }
+
+    button:disabled {
+      opacity: 0.52;
+      cursor: not-allowed;
+      transform: none;
     }
 
     .primary {
@@ -173,7 +182,7 @@
       color: #101608;
     }
 
-    .primary:hover {
+    .primary:hover:not(:disabled) {
       opacity: 0.92;
     }
 
@@ -183,7 +192,7 @@
       border: 1px solid #3a4960;
     }
 
-    .secondary:hover {
+    .secondary:hover:not(:disabled) {
       background: #2e3d54;
     }
 
@@ -191,11 +200,12 @@
       background: transparent;
       color: var(--red);
       border: 1px solid rgba(255, 119, 119, 0.38);
-      padding: 8px 12px;
+      padding: 9px 13px;
       font-size: 13px;
+      min-height: 38px;
     }
 
-    .danger:hover {
+    .danger:hover:not(:disabled) {
       background: var(--red-soft);
     }
 
@@ -209,7 +219,7 @@
     .msg {
       min-height: 22px;
       margin: 12px 0 0;
-      font-size: 13px;
+      font-size: 13.5px;
       color: var(--muted);
     }
 
@@ -219,6 +229,10 @@
 
     .msg.ok {
       color: var(--lime);
+    }
+
+    .msg.warn {
+      color: var(--amber);
     }
 
     .hidden {
@@ -257,10 +271,10 @@
       flex: none;
     }
 
-    /* Навигация по разделам кабинета */
+    /* Навигация по 4 разделам кабинета */
     .tabs {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       margin: 20px 0 22px;
     }
@@ -272,10 +286,11 @@
       color: var(--text);
       border: 1px solid var(--line);
       border-radius: 12px;
-      padding: 14px 16px;
+      padding: 14px 15px;
       display: flex;
       flex-direction: column;
       gap: 4px;
+      min-height: 64px;
     }
 
     .tab-btn:hover {
@@ -322,6 +337,267 @@
       margin: 14px 0 18px;
     }
 
+    /* Demo Editor стили */
+    .demo-dropzone {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 8px;
+      background: var(--panel3);
+      border: 2px dashed #374863;
+      border-radius: 13px;
+      padding: 24px 18px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .demo-dropzone:hover,
+    .demo-dropzone.dragover {
+      border-color: var(--lime);
+      background: rgba(200, 255, 69, 0.05);
+    }
+
+    .demo-dropzone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      border: 0;
+    }
+
+    .dropzone-icon {
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .dropzone-title {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .dropzone-hint {
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .file-info-card {
+      margin-top: 14px;
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 13px 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .file-meta-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .file-name {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .file-details {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .badge-ok {
+      background: var(--lime-soft);
+      color: var(--lime);
+      border: 1px solid rgba(200, 255, 69, 0.35);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
+    .badge-err {
+      background: var(--red-soft);
+      color: var(--red);
+      border: 1px solid rgba(255, 119, 119, 0.4);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
+    .demo-controls {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      margin-top: 14px;
+    }
+
+    .demo-controls label {
+      margin-top: 0;
+    }
+
+    .demo-controls button {
+      min-width: 170px;
+    }
+
+    /* Индикатор состояния обработки */
+    .status-panel {
+      margin-top: 18px;
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 15px 16px;
+    }
+
+    .status-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .dot-pulse {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #64748b;
+      flex: none;
+    }
+
+    .dot-pulse.ready {
+      background: var(--lime);
+    }
+
+    .dot-pulse.working {
+      background: var(--amber);
+      box-shadow: 0 0 0 4px var(--amber-soft);
+    }
+
+    .dot-pulse.error {
+      background: var(--red);
+    }
+
+    .endpoint-chip {
+      font-size: 11.5px;
+      color: var(--muted);
+      background: #090d14;
+      border: 1px solid #2a374c;
+      padding: 3px 9px;
+      border-radius: 999px;
+    }
+
+    .pipeline-steps {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pipe-step {
+      background: #0a0f17;
+      border: 1px solid #263246;
+      border-radius: 9px;
+      padding: 9px 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pipe-step strong {
+      display: block;
+      color: #dce3ed;
+      font-size: 11.5px;
+      margin-bottom: 2px;
+    }
+
+    .pipe-step.active {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+
+    .pipe-step.done {
+      border-color: rgba(200, 255, 69, 0.5);
+      color: var(--lime);
+    }
+
+    .pipe-step.failed {
+      border-color: rgba(255, 119, 119, 0.5);
+      color: var(--red);
+    }
+
+    .results-box {
+      margin-top: 16px;
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .results-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .results-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .kills-list {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .kill-row {
+      background: #0a0f17;
+      border: 1px solid #29364b;
+      border-radius: 10px;
+      padding: 11px 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 13px;
+    }
+
+    /* FACEIT Match Analyzer */
     .form-row {
       display: grid;
       grid-template-columns: 1.4fr 0.9fr auto;
@@ -338,7 +614,6 @@
     }
 
     .form-row button {
-      height: 45px;
       white-space: nowrap;
     }
 
@@ -410,16 +685,16 @@
 
     .empty-state {
       text-align: center;
-      padding: 28px 18px;
+      padding: 24px 18px;
       border: 1px dashed #33425a;
       border-radius: 12px;
       background: rgba(11, 17, 26, 0.55);
-      margin-top: 16px;
+      margin-top: 12px;
     }
 
     .empty-state p {
       margin: 6px 0 0;
-      font-size: 14px;
+      font-size: 13.5px;
     }
 
     /* My Videos карточки */
@@ -561,7 +836,15 @@
       font-size: 12px;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 960px) {
+      .tabs {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .pipeline-steps {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
       .videos-grid {
         grid-template-columns: 1fr 1fr;
       }
@@ -580,12 +863,18 @@
         grid-template-columns: 1fr;
       }
 
+      .demo-controls,
       .form-row {
         grid-template-columns: 1fr;
       }
 
+      .demo-controls button,
       .form-row button {
         width: 100%;
+      }
+
+      .pipeline-steps {
+        grid-template-columns: 1fr;
       }
 
       .videos-grid {
@@ -618,7 +907,7 @@
     <div class="hero">
       <div class="eyebrow">Counter-Strike 2 · Personal workspace</div>
       <h1>Your match.<br><span style="color:var(--lime)">Your highlights.</span></h1>
-      <p>Личный кабинет для управления матчами FACEIT, готовыми видео и будущим визуальным редактором скинов. Автоматическое скачивание и анализ демо в разработке.</p>
+      <p>Личный кабинет для загрузки локальных CS2 <code>.dem</code> файлов, учёта матчей FACEIT и подготовки хайлайтов. Серверный разбор демо и экспорт MP4 подключаются через выделенный обработчик.</p>
     </div>
 
     <section id="authArea" class="grid">
@@ -672,7 +961,11 @@
       </div>
 
       <nav class="tabs" aria-label="Разделы личного кабинета">
-        <button id="tabAnalyzer" class="tab-btn active" type="button" data-tab="analyzer">
+        <button id="tabDemo" class="tab-btn active" type="button" data-tab="demo">
+          <span class="tab-title">🎮 Demo Editor</span>
+          <span class="tab-meta">Загрузка .dem и поиск убийств</span>
+        </button>
+        <button id="tabAnalyzer" class="tab-btn" type="button" data-tab="analyzer">
           <span class="tab-title">🎯 FACEIT Match Analyzer</span>
           <span class="tab-meta">Список матчей и никнейм игрока</span>
         </button>
@@ -686,13 +979,113 @@
         </button>
       </nav>
 
-      <!-- 1. FACEIT Match Analyzer -->
-      <div id="viewAnalyzer" class="section-box">
+      <!-- 1. Demo Editor -->
+      <div id="viewDemo" class="section-box">
+        <h3>Demo Editor</h3>
+        <p class="sub">Загрузи свой файл записи матча CS2 (<code>.dem</code>) и укажи игровой ник для передачи на сервер разбора демо.</p>
+
+        <div class="notice">
+          <strong>Архитектура обработки:</strong> файл <code>.dem</code> не сохраняется в браузере (<code>localStorage</code>) и передаётся напрямую на выделенный сервер парсинга CS2 демо (например, на базе <code>demoparser2</code> / <code>awpy</code>). Если серверный обработчик ещё не подключён, система честно сообщит об этом без имитации результатов.
+        </div>
+
+        <form id="demoForm" novalidate>
+          <div id="demoDropzone" class="demo-dropzone">
+            <input
+              id="demoFileInput"
+              type="file"
+              accept=".dem,application/octet-stream"
+              aria-label="Выбрать файл CS2 .dem"
+            >
+            <div class="dropzone-icon">📁</div>
+            <div class="dropzone-title">Нажмите для выбора файла .dem или перетащите его сюда</div>
+            <div class="dropzone-hint">Поддерживается только формат CS2 Demo (.dem) · Максимальный размер: 800 МБ</div>
+          </div>
+
+          <div id="fileInfoCard" class="file-info-card hidden">
+            <div class="file-meta-group">
+              <div id="selectedFileName" class="file-name"></div>
+              <div class="file-details">
+                <span id="selectedFileSize"></span>
+                <span>·</span>
+                <span id="selectedFileBadge" class="badge-ok">Формат .dem подтверждён</span>
+              </div>
+            </div>
+            <button id="clearFileBtn" class="danger" type="button">Убрать файл</button>
+          </div>
+
+          <div class="demo-controls">
+            <div>
+              <label for="demoPlayerNick">Игровой ник в матче</label>
+              <input
+                id="demoPlayerNick"
+                type="text"
+                maxlength="32"
+                placeholder="Точный никнейм игрока в CS2"
+                required
+              >
+            </div>
+            <button id="startAnalysisBtn" class="primary" type="submit">Start Analysis</button>
+          </div>
+        </form>
+
+        <div id="demoMsg" class="msg" role="status"></div>
+
+        <!-- Индикатор состояния обработки -->
+        <div class="status-panel">
+          <div class="status-header">
+            <div class="status-indicator">
+              <span id="statusDot" class="dot-pulse"></span>
+              <span id="statusText">Ожидание выбора .dem файла и ника</span>
+            </div>
+            <span id="serverStatusChip" class="endpoint-chip">Сервер парсинга: не подключён</span>
+          </div>
+
+          <div class="pipeline-steps" aria-label="Этапы конвейера обработки">
+            <div id="stepValidate" class="pipe-step">
+              <strong>1. Валидация</strong>
+              Проверка .dem и лимита
+            </div>
+            <div id="stepUpload" class="pipe-step">
+              <strong>2. Передача</strong>
+              Отправка на сервер
+            </div>
+            <div id="stepParse" class="pipe-step">
+              <strong>3. Парсинг демо</strong>
+              Поиск киллов и таймингов
+            </div>
+            <div id="stepReplay" class="pipe-step">
+              <strong>4. 3D-повторы</strong>
+              Подготовка данных сцены
+            </div>
+            <div id="stepRender" class="pipe-step">
+              <strong>5. Экспорт MP4</strong>
+              Рендер итогового клипа
+            </div>
+          </div>
+        </div>
+
+        <!-- Область результатов анализа -->
+        <div class="results-box">
+          <div class="results-head">
+            <div class="results-title">Результаты анализа убийств</div>
+            <span id="resultsCount" class="status-pill">0 событий</span>
+          </div>
+          <div id="demoResultsArea">
+            <div class="empty-state">
+              <strong>Данных анализа пока нет</strong>
+              <p>Выберите файл <code>.dem</code>, введите ник и нажмите <strong>Start Analysis</strong>. После подключения сервера здесь появятся найденные убийства, тики/тайминги раундов и кнопки подготовки 3D-повтора и экспорта MP4.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. FACEIT Match Analyzer -->
+      <div id="viewAnalyzer" class="section-box hidden">
         <h3>FACEIT Match Analyzer</h3>
         <p class="sub">Сохраняй ссылки на матчи FACEIT и свой игровой никнейм в списке задач. Здесь ведётся только учёт матчей.</p>
 
         <div class="notice">
-          <strong>Важно:</strong> доступ к FACEIT Downloads API пока не подключён. Демо-файлы автоматически не скачиваются, убийства по демо не парсятся и анализ не выполняется.
+          <strong>Важно:</strong> доступ к FACEIT Downloads API пока не подключён. Демо-файлы автоматически не скачиваются, убийства по демо не парсятся и анализ не выполняется. Для ручного разбора уже скачанного файла используйте вкладку <strong>Demo Editor</strong>.
         </div>
 
         <form id="matchForm" novalidate>
@@ -724,7 +1117,7 @@
         <div id="matchesContainer" class="match-list"></div>
       </div>
 
-      <!-- 2. My Videos -->
+      <!-- 3. My Videos -->
       <div id="viewVideos" class="section-box hidden">
         <h3>My Videos</h3>
         <p class="sub">Раздел для будущих готовых хайлайтов и экспортированных видеофайлов. Рендер видео пока не запущен.</p>
@@ -769,7 +1162,7 @@
         </div>
       </div>
 
-      <!-- 3. Skin Editor -->
+      <!-- 4. Skin Editor -->
       <div id="viewSkins" class="section-box hidden">
         <h3>Skin Editor</h3>
         <p class="sub">Будущая функция визуальной замены скинов в уже записанном видео. Сейчас доступен только выбор параметров макета.</p>
@@ -820,7 +1213,7 @@
       </div>
 
       <div class="status-bar">
-        Аккаунт подключён. Демо-анализ FACEIT, рендер видео и замена скинов в видео находятся в разработке.
+        Аккаунт подключён. Серверный парсинг .dem файлов, генерация 3D-повторов и рендер MP4 находятся в стадии интеграции.
       </div>
       <div id="dashMsg" class="msg" role="status"></div>
     </section>
@@ -837,6 +1230,16 @@
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_M-Dlo8GKZ4TV_NwcPW8XuQ_7AyVBP5n';
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
+  // Конфигурация внешнего сервера обработки CS2 .dem файлов.
+  // Укажите публичный HTTPS URL вашего backend-сервера (например, 'https://api.yourdomain.com'), когда он будет развёрнут.
+  // Никогда не храните здесь секретные ключи API или Supabase service_role key.
+  const DEMO_PROCESSOR_CONFIG = {
+    apiBaseUrl: '',
+    analyzePath: '/api/v1/demos/analyze',
+    maxFileSizeBytes: 800 * 1024 * 1024, // 800 МБ
+    requestTimeoutMs: 120000
+  };
+
   const $ = id => document.getElementById(id);
   const setMsg = (id, message, type = '') => {
     const el = $(id);
@@ -846,7 +1249,317 @@
   };
 
   let currentUser = null;
+  let selectedDemoFile = null;
+  let isAnalyzingDemo = false;
 
+  // --- Утилиты форматирования ---
+  const formatBytes = bytes => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 Б';
+    const units = ['Б', 'КБ', 'МБ', 'ГБ'];
+    const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, index);
+    return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+  };
+
+  const formatDate = isoString => {
+    try {
+      return new Date(isoString).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return '';
+    }
+  };
+
+  // --- DEMO EDITOR: проверка файла, состояния конвейера и отправка на сервер ---
+  const resetPipelineSteps = () => {
+    ['stepValidate', 'stepUpload', 'stepParse', 'stepReplay', 'stepRender'].forEach(id => {
+      const el = $(id);
+      if (el) el.className = 'pipe-step';
+    });
+  };
+
+  const setPipelineStepState = (id, state) => {
+    const el = $(id);
+    if (!el) return;
+    el.className = `pipe-step ${state}`.trim();
+  };
+
+  const setProcessingStatus = (text, dotState = '') => {
+    $('statusText').textContent = text;
+    $('statusDot').className = `dot-pulse ${dotState}`.trim();
+  };
+
+  const updateServerChip = () => {
+    const chip = $('serverStatusChip');
+    if (!chip) return;
+    if (DEMO_PROCESSOR_CONFIG.apiBaseUrl.trim()) {
+      chip.textContent = 'Сервер парсинга: настроен';
+      chip.style.color = 'var(--lime)';
+      chip.style.borderColor = 'rgba(200, 255, 69, 0.35)';
+    } else {
+      chip.textContent = 'Сервер парсинга: не подключён';
+      chip.style.color = 'var(--muted)';
+      chip.style.borderColor = '#2a374c';
+    }
+  };
+
+  const validateDemoFile = file => {
+    if (!file) {
+      return { valid: false, error: 'Выберите файл формата .dem для анализа.' };
+    }
+
+    const fileName = file.name.trim();
+    const lowerName = fileName.toLowerCase();
+
+    if (!lowerName.endsWith('.dem')) {
+      return {
+        valid: false,
+        error: `Неподдерживаемый формат файла («${fileName}»). Требуется файл CS2 demo с расширением .dem.`
+      };
+    }
+
+    if (file.size === 0) {
+      return {
+        valid: false,
+        error: 'Выбранный файл пуст (0 Б). Проверьте целостность .dem файла.'
+      };
+    }
+
+    if (file.size > DEMO_PROCESSOR_CONFIG.maxFileSizeBytes) {
+      return {
+        valid: false,
+        error: `Файл слишком большой (${formatBytes(file.size)}). Максимально допустимый размер — ${formatBytes(DEMO_PROCESSOR_CONFIG.maxFileSizeBytes)}.`
+      };
+    }
+
+    return { valid: true };
+  };
+
+  const handleSelectedDemoFile = file => {
+    resetPipelineSteps();
+    const card = $('fileInfoCard');
+    const badge = $('selectedFileBadge');
+
+    if (!file) {
+      selectedDemoFile = null;
+      card.classList.add('hidden');
+      setProcessingStatus('Ожидание выбора .dem файла и ника', '');
+      setMsg('demoMsg', '');
+      return;
+    }
+
+    const check = validateDemoFile(file);
+    $('selectedFileName').textContent = file.name;
+    $('selectedFileSize').textContent = `Размер: ${formatBytes(file.size)}`;
+    card.classList.remove('hidden');
+
+    if (!check.valid) {
+      selectedDemoFile = null;
+      badge.textContent = 'Ошибка формата или размера';
+      badge.className = 'badge-err';
+      setPipelineStepState('stepValidate', 'failed');
+      setProcessingStatus('Файл не прошёл проверку', 'error');
+      setMsg('demoMsg', check.error, 'error');
+      return;
+    }
+
+    selectedDemoFile = file;
+    badge.textContent = 'Формат .dem подтверждён';
+    badge.className = 'badge-ok';
+    setPipelineStepState('stepValidate', 'done');
+    setProcessingStatus('Файл проверен и готов к отправке на сервер', 'ready');
+    setMsg('demoMsg', 'Файл .dem проверен. Укажите игровой ник и нажмите Start Analysis.', 'ok');
+  };
+
+  const renderAnalysisResults = data => {
+    const area = $('demoResultsArea');
+    const countBadge = $('resultsCount');
+    area.innerHTML = '';
+
+    const kills = Array.isArray(data?.kills) ? data.kills : [];
+    countBadge.textContent = `${kills.length} событий`;
+
+    if (kills.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = '<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил разбор демо, но событий убийств для данного игрока не обнаружено.</p>';
+      area.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement('div');
+    list.className = 'kills-list';
+
+    kills.forEach((kill, idx) => {
+      const row = document.createElement('div');
+      row.className = 'kill-row';
+
+      const left = document.createElement('div');
+      const roundText = kill.round !== undefined ? `Раунд ${kill.round}` : `Фраг #${idx + 1}`;
+      const timeText = kill.matchTime || (kill.tick !== undefined ? `Тик ${kill.tick}` : 'Тайминг получен');
+      const weaponText = kill.weapon ? ` · ${kill.weapon}` : '';
+      const victimText = kill.victim ? ` → ${kill.victim}` : '';
+      left.textContent = `${roundText} · ${timeText}${weaponText}${victimText}`;
+
+      const right = document.createElement('span');
+      right.className = 'status-pill';
+      right.textContent = kill.replayReady ? '3D-повтор готов к рендеру' : 'Данные для 3D-повтора подготовлены';
+
+      row.append(left, right);
+      list.appendChild(row);
+    });
+
+    area.appendChild(list);
+  };
+
+  const demoInput = $('demoFileInput');
+  const dropzone = $('demoDropzone');
+
+  demoInput.addEventListener('change', e => {
+    const file = e.target.files?.[0] || null;
+    handleSelectedDemoFile(file);
+  });
+
+  ['dragenter', 'dragover'].forEach(evtName => {
+    dropzone.addEventListener(evtName, e => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(evtName => {
+    dropzone.addEventListener(evtName, e => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+    });
+  });
+
+  dropzone.addEventListener('drop', e => {
+    const file = e.dataTransfer?.files?.[0] || null;
+    if (file) {
+      handleSelectedDemoFile(file);
+    }
+  });
+
+  $('clearFileBtn').addEventListener('click', () => {
+    demoInput.value = '';
+    handleSelectedDemoFile(null);
+  });
+
+  $('demoForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (isAnalyzingDemo) return;
+
+    const nick = $('demoPlayerNick').value.trim();
+
+    if (!selectedDemoFile) {
+      setPipelineStepState('stepValidate', 'failed');
+      setProcessingStatus('Не выбран корректный .dem файл', 'error');
+      setMsg('demoMsg', 'Сначала выберите корректный файл CS2 с расширением .dem.', 'error');
+      return;
+    }
+
+    const fileCheck = validateDemoFile(selectedDemoFile);
+    if (!fileCheck.valid) {
+      setPipelineStepState('stepValidate', 'failed');
+      setProcessingStatus('Ошибка проверки файла', 'error');
+      setMsg('demoMsg', fileCheck.error, 'error');
+      return;
+    }
+
+    if (!nick) {
+      setProcessingStatus('Не указан игровой ник', 'error');
+      setMsg('demoMsg', 'Введите игровой никнейм, убийства которого нужно найти в демо.', 'error');
+      $('demoPlayerNick').focus();
+      return;
+    }
+
+    const baseUrl = DEMO_PROCESSOR_CONFIG.apiBaseUrl.trim().replace(/\/+$/, '');
+    if (!baseUrl) {
+      setPipelineStepState('stepValidate', 'done');
+      setPipelineStepState('stepUpload', 'failed');
+      setProcessingStatus('Сервер обработки демо не подключён', 'error');
+      setMsg(
+        'demoMsg',
+        'Сервер обработки .dem файлов ещё не подключён к фронтенду. Файл проверен локально, но отправка и парсинг не выполняются до подключения backend-сервера.',
+        'warn'
+      );
+      return;
+    }
+
+    isAnalyzingDemo = true;
+    $('startAnalysisBtn').disabled = true;
+    resetPipelineSteps();
+    setPipelineStepState('stepValidate', 'done');
+    setPipelineStepState('stepUpload', 'active');
+    setProcessingStatus('Передача .dem файла на сервер обработки…', 'working');
+    setMsg('demoMsg', 'Загружаем файл на сервер парсинга. Не закрывайте страницу…');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEMO_PROCESSOR_CONFIG.requestTimeoutMs);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const formData = new FormData();
+      formData.append('demo', selectedDemoFile, selectedDemoFile.name);
+      formData.append('playerNick', nick);
+      if (currentUser?.id) {
+        formData.append('userId', currentUser.id);
+      }
+
+      const headers = {};
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const response = await fetch(`${baseUrl}${DEMO_PROCESSOR_CONFIG.analyzePath}`, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal
+      });
+
+      setPipelineStepState('stepUpload', 'done');
+      setPipelineStepState('stepParse', 'active');
+      setProcessingStatus('Парсинг CS2 demo и поиск убийств…', 'working');
+
+      if (!response.ok) {
+        let serverError = `Сервер вернул ошибку (${response.status}).`;
+        try {
+          const errPayload = await response.json();
+          if (errPayload?.message) serverError = errPayload.message;
+        } catch {
+          // Ответ не в JSON
+        }
+        throw new Error(serverError);
+      }
+
+      const result = await response.json();
+      setPipelineStepState('stepParse', 'done');
+      setPipelineStepState('stepReplay', result?.replayPrepared ? 'done' : 'active');
+      setProcessingStatus('Анализ демо завершён сервером', 'ready');
+      setMsg('demoMsg', 'Разбор .dem выполнен. Получены события убийств и тайминги.', 'ok');
+      renderAnalysisResults(result);
+    } catch (err) {
+      setPipelineStepState('stepUpload', 'failed');
+      setProcessingStatus('Ошибка при обращении к серверу обработки', 'error');
+      const message = err?.name === 'AbortError'
+        ? 'Превышено время ожидания ответа от сервера обработки демо.'
+        : (err?.message || 'Не удалось соединиться с сервером обработки демо.');
+      setMsg('demoMsg', message, 'error');
+    } finally {
+      clearTimeout(timeoutId);
+      isAnalyzingDemo = false;
+      $('startAnalysisBtn').disabled = false;
+    }
+  });
+
+  // --- FACEIT MATCH ANALYZER (локальный учёт ссылок, без больших файлов) ---
   const getStorageKey = user => {
     const uid = user?.id || user?.email || 'guest';
     return `cs2_kill_editor_faceit_matches_${uid}`;
@@ -906,20 +1619,6 @@
       normalizedUrl: parsed.toString(),
       matchId
     };
-  };
-
-  const formatDate = isoString => {
-    try {
-      return new Date(isoString).toLocaleString('ru-RU', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return '';
-    }
   };
 
   const renderMatches = () => {
@@ -987,8 +1686,10 @@
     });
   };
 
+  // --- Навигация по вкладкам ---
   const setActiveTab = tabName => {
     const map = {
+      demo: { btn: 'tabDemo', view: 'viewDemo' },
       analyzer: { btn: 'tabAnalyzer', view: 'viewAnalyzer' },
       videos: { btn: 'tabVideos', view: 'viewVideos' },
       skins: { btn: 'tabSkins', view: 'viewSkins' }
@@ -1007,6 +1708,7 @@
     });
   });
 
+  // --- Skin Editor предпросмотр ---
   const updateSkinPreview = () => {
     const weapon = $('weaponSelect').value;
     const rawSkin = $('skinNameInput').value.trim();
@@ -1062,6 +1764,7 @@
     setMsg('matchMsg', 'Матч добавлен в список. Автоматический анализ демо пока не выполняется.', 'ok');
   });
 
+  // --- SUPABASE AUTHENTICATION (без изменения логики) ---
   const showUser = user => {
     currentUser = user || null;
     $('authArea').classList.toggle('hidden', !currentUser);
@@ -1069,6 +1772,7 @@
     $('userEmail').textContent = currentUser?.email || '';
     if (currentUser) {
       renderMatches();
+      updateServerChip();
     }
   };
 
