@@ -3,54 +3,656 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CS2 Kill Editor — личный кабинет и будущий редактор хайлайтов CS2.">
+  <meta name="description" content="CS2 Kill Editor — личный кабинет, трекер матчей FACEIT и будущий редактор хайлайтов CS2.">
   <title>CS2 Kill Editor</title>
   <style>
-    :root{--bg:#090c12;--panel:#121925;--panel2:#182231;--text:#f4f7fb;--muted:#9ba8ba;--lime:#c8ff45;--line:#283448;--red:#ff7777}
-    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 75% 0%,#26351b 0,transparent 34%),var(--bg);color:var(--text);font:16px/1.55 Inter,system-ui,-apple-system,Segoe UI,sans-serif}
-    .wrap{width:min(1050px,92%);margin:auto}.top{display:flex;justify-content:space-between;align-items:center;padding:23px 0;border-bottom:1px solid var(--line)}
-    .brand{font-weight:950;letter-spacing:-.04em}.brand span{color:var(--lime)}.tag{font-size:12px;color:var(--lime);border:1px solid #536a2e;padding:5px 10px;border-radius:30px}
-    main{padding:58px 0 70px}.hero{max-width:720px;margin-bottom:32px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:var(--lime);font-weight:800}
-    h1{font-size:clamp(38px,7vw,66px);line-height:1.02;letter-spacing:-.055em;margin:13px 0 16px}p{color:var(--muted)}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}.panel{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:24px}
-    h2{margin:0 0 8px;font-size:23px}.sub{font-size:14px;margin:0 0 20px}
-    label{display:block;font-size:13px;color:#dce3ed;margin:13px 0 6px}
-    input{width:100%;background:#0b111a;border:1px solid #344258;border-radius:9px;padding:13px;color:var(--text);font:inherit;outline:none}
-    input:focus{border-color:var(--lime)}button{border:0;border-radius:9px;padding:12px 16px;font:700 14px inherit;cursor:pointer}
-    .primary{background:var(--lime);color:#101608}.secondary{background:#263347;color:var(--text);border:1px solid #3a4960}
-    .actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}.msg{min-height:22px;margin:12px 0 0;font-size:13px;color:var(--muted)}.msg.error{color:var(--red)}.msg.ok{color:var(--lime)}
-    .wide{grid-column:1/-1}.hidden{display:none!important}.account{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap}
-    .feature{background:var(--panel2);border:1px solid var(--line);padding:17px;border-radius:12px;margin-top:13px}.feature strong{display:block;margin-bottom:4px}.feature p{font-size:14px;margin:0}
-    .status{font-size:12px;color:var(--lime)}footer{border-top:1px solid var(--line);padding:25px 0 38px;color:var(--muted);font-size:12px}
-    @media(max-width:720px){.grid{grid-template-columns:1fr}main{padding-top:40px}.panel{padding:19px}}
+    :root {
+      --bg: #090c12;
+      --panel: #121925;
+      --panel2: #182231;
+      --panel3: #0e141e;
+      --text: #f4f7fb;
+      --muted: #9ba8ba;
+      --lime: #c8ff45;
+      --lime-soft: rgba(200, 255, 69, 0.14);
+      --line: #283448;
+      --red: #ff7777;
+      --red-soft: rgba(255, 119, 119, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(ellipse at 75% 0%, #26351b 0, transparent 36%), var(--bg);
+      color: var(--text);
+      font: 16px/1.55 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    .wrap {
+      width: min(1080px, 92%);
+      margin: auto;
+    }
+
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 22px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      font-weight: 950;
+      letter-spacing: -0.04em;
+      font-size: 18px;
+    }
+
+    .brand span {
+      color: var(--lime);
+    }
+
+    .tag {
+      font-size: 12px;
+      color: var(--lime);
+      border: 1px solid #536a2e;
+      background: rgba(200, 255, 69, 0.06);
+      padding: 5px 10px;
+      border-radius: 30px;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    main {
+      padding: 48px 0 68px;
+    }
+
+    .hero {
+      max-width: 740px;
+      margin-bottom: 32px;
+    }
+
+    .eyebrow {
+      font-size: 12px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--lime);
+      font-weight: 800;
+    }
+
+    h1 {
+      font-size: clamp(36px, 7vw, 64px);
+      line-height: 1.02;
+      letter-spacing: -0.055em;
+      margin: 12px 0 16px;
+    }
+
+    p {
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      padding: 24px;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 23px;
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      letter-spacing: -0.015em;
+    }
+
+    .sub {
+      font-size: 14px;
+      margin: 0 0 18px;
+      color: var(--muted);
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: #dce3ed;
+      margin: 13px 0 6px;
+      font-weight: 600;
+    }
+
+    input,
+    select {
+      width: 100%;
+      background: #0b111a;
+      border: 1px solid #344258;
+      border-radius: 9px;
+      padding: 13px;
+      color: var(--text);
+      font: 15px/1.35 inherit;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: var(--lime);
+      box-shadow: 0 0 0 3px rgba(200, 255, 69, 0.12);
+    }
+
+    button {
+      border: 0;
+      border-radius: 9px;
+      padding: 12px 16px;
+      font: 700 14px/1.2 inherit;
+      cursor: pointer;
+      transition: transform 0.12s ease, opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+      touch-action: manipulation;
+    }
+
+    button:active {
+      transform: scale(0.985);
+    }
+
+    .primary {
+      background: var(--lime);
+      color: #101608;
+    }
+
+    .primary:hover {
+      opacity: 0.92;
+    }
+
+    .secondary {
+      background: #263347;
+      color: var(--text);
+      border: 1px solid #3a4960;
+    }
+
+    .secondary:hover {
+      background: #2e3d54;
+    }
+
+    .danger {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid rgba(255, 119, 119, 0.38);
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .danger:hover {
+      background: var(--red-soft);
+    }
+
+    .actions {
+      display: flex;
+      gap: 9px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .msg {
+      min-height: 22px;
+      margin: 12px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .msg.error {
+      color: var(--red);
+    }
+
+    .msg.ok {
+      color: var(--lime);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .account {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .user-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #dce3ed;
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      padding: 6px 12px;
+      border-radius: 999px;
+      margin-top: 6px;
+      word-break: break-word;
+    }
+
+    .user-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--lime);
+      flex: none;
+    }
+
+    /* Навигация по разделам кабинета */
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin: 20px 0 22px;
+    }
+
+    .tab-btn {
+      width: 100%;
+      text-align: left;
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .tab-btn:hover {
+      border-color: #465a78;
+    }
+
+    .tab-btn.active {
+      background: rgba(200, 255, 69, 0.08);
+      border-color: var(--lime);
+      box-shadow: inset 0 0 0 1px rgba(200, 255, 69, 0.25);
+    }
+
+    .tab-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .tab-btn.active .tab-title {
+      color: var(--lime);
+    }
+
+    .tab-meta {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .section-box {
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+    }
+
+    .notice {
+      background: var(--panel3);
+      border: 1px solid #2e3d54;
+      border-left: 3px solid var(--lime);
+      border-radius: 10px;
+      padding: 13px 15px;
+      font-size: 13.5px;
+      color: #c5d0de;
+      margin: 14px 0 18px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1.4fr 0.9fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .form-row .field {
+      min-width: 0;
+    }
+
+    .form-row label {
+      margin-top: 0;
+    }
+
+    .form-row button {
+      height: 45px;
+      white-space: nowrap;
+    }
+
+    .match-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .match-card {
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 15px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .match-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .match-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+
+    .nick-pill {
+      background: var(--lime-soft);
+      color: var(--lime);
+      border: 1px solid rgba(200, 255, 69, 0.35);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+    }
+
+    .status-pill {
+      background: rgba(155, 168, 186, 0.12);
+      color: #c6d1e0;
+      border: 1px solid #35445c;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+    }
+
+    .match-url {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .match-sub {
+      font-size: 12px;
+      color: #7d8b9f;
+      margin-top: 4px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 28px 18px;
+      border: 1px dashed #33425a;
+      border-radius: 12px;
+      background: rgba(11, 17, 26, 0.55);
+      margin-top: 16px;
+    }
+
+    .empty-state p {
+      margin: 6px 0 0;
+      font-size: 14px;
+    }
+
+    /* My Videos карточки */
+    .videos-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .video-card {
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .video-thumb {
+      aspect-ratio: 16 / 9;
+      background:
+        linear-gradient(135deg, rgba(200, 255, 69, 0.14), rgba(18, 25, 37, 0.92)),
+        repeating-linear-gradient(
+          -45deg,
+          rgba(255, 255, 255, 0.02) 0,
+          rgba(255, 255, 255, 0.02) 10px,
+          transparent 10px,
+          transparent 20px
+        );
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px;
+    }
+
+    .video-badge {
+      align-self: flex-start;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--lime);
+      background: rgba(9, 12, 18, 0.82);
+      border: 1px solid rgba(200, 255, 69, 0.35);
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+
+    .video-spec {
+      font-size: 12px;
+      color: #dce3ed;
+      background: rgba(9, 12, 18, 0.78);
+      padding: 4px 8px;
+      border-radius: 6px;
+      align-self: flex-end;
+    }
+
+    .video-body {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .video-title {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .video-desc {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    /* Skin Editor */
+    .skin-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 0.95fr;
+      gap: 16px;
+      margin-top: 16px;
+      align-items: start;
+    }
+
+    .preview-box {
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      padding: 16px;
+    }
+
+    .preview-frame {
+      aspect-ratio: 16 / 9;
+      border-radius: 10px;
+      border: 1px solid #304058;
+      background: radial-gradient(circle at 70% 25%, rgba(200, 255, 69, 0.16), transparent 45%), #090d14;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .preview-tag {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--lime);
+    }
+
+    .preview-summary {
+      font-size: 14px;
+      color: #e6edf7;
+      font-weight: 600;
+    }
+
+    .preview-sub {
+      font-size: 12.5px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .status-bar {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      font-size: 12.5px;
+      color: var(--lime);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 25px 0 38px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .videos-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .skin-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .tabs {
+        grid-template-columns: 1fr;
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .form-row button {
+        width: 100%;
+      }
+
+      .videos-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .match-card {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      main {
+        padding-top: 34px;
+      }
+
+      .panel {
+        padding: 18px;
+      }
+    }
   </style>
 </head>
 <body>
 <div class="wrap">
-  <header class="top"><div class="brand">CS2 <span>KILL EDITOR</span></div><div class="tag">EARLY ACCESS</div></header>
+  <header class="top">
+    <div class="brand">CS2 <span>KILL EDITOR</span></div>
+    <div class="tag">EARLY ACCESS</div>
+  </header>
+
   <main>
     <div class="hero">
       <div class="eyebrow">Counter-Strike 2 · Personal workspace</div>
       <h1>Your match.<br><span style="color:var(--lime)">Your highlights.</span></h1>
-      <p>Создай аккаунт, чтобы получить личный кабинет CS2 Kill Editor. Автоматический анализ демо и экспорт хайлайтов находятся в разработке.</p>
+      <p>Личный кабинет для управления матчами FACEIT, готовыми видео и будущим визуальным редактором скинов. Автоматическое скачивание и анализ демо в разработке.</p>
     </div>
 
     <section id="authArea" class="grid">
       <div class="panel">
-        <h2>Вход</h2><p class="sub">Уже зарегистрирован? Войди в аккаунт.</p>
+        <h2>Вход</h2>
+        <p class="sub">Уже зарегистрирован? Войди в аккаунт.</p>
         <form id="loginForm">
-          <label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="email" required placeholder="you@example.com">
-          <label for="loginPassword">Пароль</label><input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="Твой пароль">
-          <div class="actions"><button class="primary" type="submit">Войти</button><button class="secondary" id="resetBtn" type="button">Забыли пароль?</button></div>
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@example.com">
+
+          <label for="loginPassword">Пароль</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="Твой пароль">
+
+          <div class="actions">
+            <button class="primary" type="submit">Войти</button>
+            <button class="secondary" id="resetBtn" type="button">Забыли пароль?</button>
+          </div>
         </form>
         <div id="loginMsg" class="msg" role="status"></div>
       </div>
+
       <div class="panel">
-        <h2>Регистрация</h2><p class="sub">Создай новый аккаунт бесплатно.</p>
+        <h2>Регистрация</h2>
+        <p class="sub">Создай новый аккаунт бесплатно.</p>
         <form id="signupForm">
-          <label for="signupEmail">Email</label><input id="signupEmail" type="email" autocomplete="email" required placeholder="you@example.com">
-          <label for="signupPassword">Пароль</label><input id="signupPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="Минимум 6 символов">
-          <div class="actions"><button class="primary" type="submit">Создать аккаунт</button></div>
+          <label for="signupEmail">Email</label>
+          <input id="signupEmail" type="email" autocomplete="email" required placeholder="you@example.com">
+
+          <label for="signupPassword">Пароль</label>
+          <input id="signupPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="Минимум 6 символов">
+
+          <div class="actions">
+            <button class="primary" type="submit">Создать аккаунт</button>
+          </div>
         </form>
         <div id="signupMsg" class="msg" role="status"></div>
       </div>
@@ -58,16 +660,172 @@
 
     <section id="dashboard" class="panel hidden">
       <div class="account">
-        <div><div class="eyebrow">Личный кабинет</div><h2 style="margin:5px 0">Добро пожаловать!</h2><div id="userEmail" class="sub"></div></div>
+        <div>
+          <div class="eyebrow">Личный кабинет</div>
+          <h2 style="margin:5px 0">Добро пожаловать!</h2>
+          <div class="user-badge">
+            <span class="user-dot"></span>
+            <span id="userEmail"></span>
+          </div>
+        </div>
         <button id="logoutBtn" class="secondary" type="button">Выйти</button>
       </div>
-      <div class="feature"><strong>🎯 FACEIT Match Analyzer</strong><p>Добавление ссылки на матч и поиск твоих убийств появятся после подключения разрешённого способа получения демо.</p></div>
-      <div class="feature"><strong>🎬 My Videos</strong><p>Здесь будут храниться готовые нарезки и экспортированные MP4.</p></div>
-      <div class="feature"><strong>🎨 Skin Editor</strong><p>Будущая функция визуальной замены скинов в уже записанном видео.</p></div>
-      <p class="status">Аккаунт подключён. Функции обработки видео ещё разрабатываются.</p>
+
+      <nav class="tabs" aria-label="Разделы личного кабинета">
+        <button id="tabAnalyzer" class="tab-btn active" type="button" data-tab="analyzer">
+          <span class="tab-title">🎯 FACEIT Match Analyzer</span>
+          <span class="tab-meta">Список матчей и никнейм игрока</span>
+        </button>
+        <button id="tabVideos" class="tab-btn" type="button" data-tab="videos">
+          <span class="tab-title">🎬 My Videos</span>
+          <span class="tab-meta">Готовые нарезки и экспорт</span>
+        </button>
+        <button id="tabSkins" class="tab-btn" type="button" data-tab="skins">
+          <span class="tab-title">🎨 Skin Editor</span>
+          <span class="tab-meta">Визуальная замена скинов в видео</span>
+        </button>
+      </nav>
+
+      <!-- 1. FACEIT Match Analyzer -->
+      <div id="viewAnalyzer" class="section-box">
+        <h3>FACEIT Match Analyzer</h3>
+        <p class="sub">Сохраняй ссылки на матчи FACEIT и свой игровой никнейм в списке задач. Здесь ведётся только учёт матчей.</p>
+
+        <div class="notice">
+          <strong>Важно:</strong> доступ к FACEIT Downloads API пока не подключён. Демо-файлы автоматически не скачиваются, убийства по демо не парсятся и анализ не выполняется.
+        </div>
+
+        <form id="matchForm" novalidate>
+          <div class="form-row">
+            <div class="field">
+              <label for="faceitUrl">Ссылка на матч FACEIT</label>
+              <input
+                id="faceitUrl"
+                type="url"
+                placeholder="https://www.faceit.com/ru/cs2/room/1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                required
+              >
+            </div>
+            <div class="field">
+              <label for="playerNick">Игровой ник</label>
+              <input
+                id="playerNick"
+                type="text"
+                maxlength="32"
+                placeholder="Например, s1mple"
+                required
+              >
+            </div>
+            <button class="primary" type="submit">Добавить матч</button>
+          </div>
+        </form>
+        <div id="matchMsg" class="msg" role="status"></div>
+
+        <div id="matchesContainer" class="match-list"></div>
+      </div>
+
+      <!-- 2. My Videos -->
+      <div id="viewVideos" class="section-box hidden">
+        <h3>My Videos</h3>
+        <p class="sub">Раздел для будущих готовых хайлайтов и экспортированных видеофайлов. Рендер видео пока не запущен.</p>
+
+        <div class="notice">
+          Ниже показаны слоты будущих карточек готовых видео. Реальный рендер MP4 и обработка киллов ещё в разработке.
+        </div>
+
+        <div class="videos-grid">
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-badge">В разработке</span>
+              <span class="video-spec">1080p · MP4</span>
+            </div>
+            <div class="video-body">
+              <div class="video-title">Слот готового хайлайта #1</div>
+              <p class="video-desc">Здесь появится финальная нарезка после подключения автоматического поиска фрагментов и рендера.</p>
+            </div>
+          </article>
+
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-badge">В разработке</span>
+              <span class="video-spec">1440p · MP4</span>
+            </div>
+            <div class="video-body">
+              <div class="video-title">Слот готового хайлайта #2</div>
+              <p class="video-desc">Карточка будет отображать название матча, длительность клипа и статус экспорта.</p>
+            </div>
+          </article>
+
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-badge">В разработке</span>
+              <span class="video-spec">60 FPS · MP4</span>
+            </div>
+            <div class="video-body">
+              <div class="video-title">Слот готового хайлайта #3</div>
+              <p class="video-desc">Функция скачивания и управления готовыми видео появится на следующем этапе разработки.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <!-- 3. Skin Editor -->
+      <div id="viewSkins" class="section-box hidden">
+        <h3>Skin Editor</h3>
+        <p class="sub">Будущая функция визуальной замены скинов в уже записанном видео. Сейчас доступен только выбор параметров макета.</p>
+
+        <div class="notice">
+          Видео-инпейнтинг / покадровая замена скинов на готовом видео ещё не реализована — выбор параметров ниже никуда не отправляется и видео не изменяет.
+        </div>
+
+        <div class="skin-grid">
+          <div>
+            <label for="weaponSelect">Оружие для будущей замены</label>
+            <select id="weaponSelect">
+              <option value="AK-47">AK-47</option>
+              <option value="AWP">AWP</option>
+              <option value="M4A4">M4A4</option>
+              <option value="M4A1-S">M4A1-S</option>
+              <option value="Desert Eagle">Desert Eagle</option>
+              <option value="Нож">Нож</option>
+            </select>
+
+            <label for="skinNameInput">Желаемый скин (черновой выбор)</label>
+            <input
+              id="skinNameInput"
+              type="text"
+              maxlength="60"
+              placeholder="Например, Asiimov или Printstream"
+            >
+
+            <label for="wearSelect">Состояние (Wear)</label>
+            <select id="wearSelect">
+              <option value="Factory New (Прямо с завода)">Factory New (Прямо с завода)</option>
+              <option value="Minimal Wear (Немного поношенное)">Minimal Wear (Немного поношенное)</option>
+              <option value="Field-Tested (После полевых испытаний)">Field-Tested (После полевых испытаний)</option>
+            </select>
+          </div>
+
+          <div class="preview-box">
+            <div class="preview-frame">
+              <div class="preview-tag">Макет · Рендер не реализован</div>
+              <div>
+                <div id="skinPreviewTitle" class="preview-summary">AK-47 · Скин не указан</div>
+                <div id="skinPreviewWear" class="preview-sub">Factory New (Прямо с завода)</div>
+              </div>
+            </div>
+            <div class="msg">Изменения обновляют только локальный макет на странице и не обрабатывают видео.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        Аккаунт подключён. Демо-анализ FACEIT, рендер видео и замена скинов в видео находятся в разработке.
+      </div>
       <div id="dashMsg" class="msg" role="status"></div>
     </section>
   </main>
+
   <footer>© 2026 CS2 Kill Editor · Независимый проект. Не связан с FACEIT или Valve.</footer>
 </div>
 
@@ -80,48 +838,302 @@
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
   const $ = id => document.getElementById(id);
-  const setMsg = (id, message, type='') => { const el=$(id); el.textContent=message; el.className='msg '+type; };
+  const setMsg = (id, message, type = '') => {
+    const el = $(id);
+    if (!el) return;
+    el.textContent = message;
+    el.className = 'msg ' + type;
+  };
+
+  let currentUser = null;
+
+  const getStorageKey = user => {
+    const uid = user?.id || user?.email || 'guest';
+    return `cs2_kill_editor_faceit_matches_${uid}`;
+  };
+
+  const loadMatches = user => {
+    try {
+      const raw = localStorage.getItem(getStorageKey(user));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const saveMatches = (user, matches) => {
+    try {
+      localStorage.setItem(getStorageKey(user), JSON.stringify(matches));
+    } catch {
+      // Игнорируем ошибку квоты хранилища, если недоступно
+    }
+  };
+
+  const parseFaceitMatchUrl = rawUrl => {
+    let parsed;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return { valid: false, error: 'Введите корректную ссылку, начинающуюся с https:// или http://.' };
+    }
+
+    if (!['https:', 'http:'].includes(parsed.protocol)) {
+      return { valid: false, error: 'Ссылка должна использовать протокол https:// или http://.' };
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    const isFaceitHost = host === 'faceit.com' || host.endsWith('.faceit.com');
+    if (!isFaceitHost) {
+      return { valid: false, error: 'Ссылка должна вести на домен faceit.com.' };
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const roomIndex = segments.findIndex(part => part.toLowerCase() === 'room');
+    const matchIdFromRoom = roomIndex !== -1 && segments[roomIndex + 1] ? segments[roomIndex + 1] : null;
+    const matchIdFromQuery = parsed.searchParams.get('roomId') || parsed.searchParams.get('matchId');
+    const matchId = matchIdFromRoom || matchIdFromQuery;
+
+    if (!matchId || matchId.length < 3) {
+      return {
+        valid: false,
+        error: 'Не удалось распознать матч FACEIT. Используйте ссылку вида https://www.faceit.com/.../room/<id_матча>.'
+      };
+    }
+
+    return {
+      valid: true,
+      normalizedUrl: parsed.toString(),
+      matchId
+    };
+  };
+
+  const formatDate = isoString => {
+    try {
+      return new Date(isoString).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return '';
+    }
+  };
+
+  const renderMatches = () => {
+    const container = $('matchesContainer');
+    if (!container) return;
+
+    const matches = loadMatches(currentUser);
+    container.innerHTML = '';
+
+    if (matches.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = '<strong>Список матчей пока пуст</strong><p>Добавьте ссылку на матч FACEIT и ваш игровой никнейм выше.</p>';
+      container.appendChild(empty);
+      return;
+    }
+
+    matches.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'match-card';
+
+      const main = document.createElement('div');
+      main.className = 'match-main';
+
+      const top = document.createElement('div');
+      top.className = 'match-top';
+
+      const nickSpan = document.createElement('span');
+      nickSpan.className = 'nick-pill';
+      nickSpan.textContent = `Ник: ${item.nick}`;
+
+      const statusSpan = document.createElement('span');
+      statusSpan.className = 'status-pill';
+      statusSpan.textContent = 'Анализ недоступен (API не подключён)';
+
+      top.append(nickSpan, statusSpan);
+
+      const urlSpan = document.createElement('span');
+      urlSpan.className = 'match-url';
+      urlSpan.textContent = item.url;
+      urlSpan.title = item.url;
+
+      const subSpan = document.createElement('div');
+      subSpan.className = 'match-sub';
+      const addedText = item.createdAt ? `Добавлено: ${formatDate(item.createdAt)}` : '';
+      const idText = item.matchId ? `ID: ${item.matchId}` : '';
+      subSpan.textContent = [idText, addedText].filter(Boolean).join(' · ');
+
+      main.append(top, urlSpan, subSpan);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'danger';
+      delBtn.textContent = 'Удалить';
+      delBtn.setAttribute('aria-label', `Удалить матч ${item.matchId || item.url}`);
+      delBtn.addEventListener('click', () => {
+        const updated = loadMatches(currentUser).filter(m => m.id !== item.id);
+        saveMatches(currentUser, updated);
+        renderMatches();
+        setMsg('matchMsg', 'Матч удалён из списка.', 'ok');
+      });
+
+      card.append(main, delBtn);
+      container.appendChild(card);
+    });
+  };
+
+  const setActiveTab = tabName => {
+    const map = {
+      analyzer: { btn: 'tabAnalyzer', view: 'viewAnalyzer' },
+      videos: { btn: 'tabVideos', view: 'viewVideos' },
+      skins: { btn: 'tabSkins', view: 'viewSkins' }
+    };
+
+    Object.entries(map).forEach(([key, { btn, view }]) => {
+      const isActive = key === tabName;
+      $(btn).classList.toggle('active', isActive);
+      $(view).classList.toggle('hidden', !isActive);
+    });
+  };
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setActiveTab(btn.dataset.tab);
+    });
+  });
+
+  const updateSkinPreview = () => {
+    const weapon = $('weaponSelect').value;
+    const rawSkin = $('skinNameInput').value.trim();
+    const wear = $('wearSelect').value;
+
+    $('skinPreviewTitle').textContent = `${weapon} · ${rawSkin || 'Скин не указан'}`;
+    $('skinPreviewWear').textContent = wear;
+  };
+
+  $('weaponSelect').addEventListener('change', updateSkinPreview);
+  $('skinNameInput').addEventListener('input', updateSkinPreview);
+  $('wearSelect').addEventListener('change', updateSkinPreview);
+  updateSkinPreview();
+
+  $('matchForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const rawUrl = $('faceitUrl').value.trim();
+    const nick = $('playerNick').value.trim();
+
+    if (!rawUrl) {
+      setMsg('matchMsg', 'Введите ссылку на матч FACEIT.', 'error');
+      $('faceitUrl').focus();
+      return;
+    }
+
+    const check = parseFaceitMatchUrl(rawUrl);
+    if (!check.valid) {
+      setMsg('matchMsg', check.error, 'error');
+      $('faceitUrl').focus();
+      return;
+    }
+
+    if (!nick) {
+      setMsg('matchMsg', 'Введите игровой никнейм.', 'error');
+      $('playerNick').focus();
+      return;
+    }
+
+    const matches = loadMatches(currentUser);
+    const newMatch = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      url: check.normalizedUrl,
+      matchId: check.matchId,
+      nick,
+      createdAt: new Date().toISOString()
+    };
+
+    matches.unshift(newMatch);
+    saveMatches(currentUser, matches);
+    renderMatches();
+
+    $('faceitUrl').value = '';
+    setMsg('matchMsg', 'Матч добавлен в список. Автоматический анализ демо пока не выполняется.', 'ok');
+  });
+
   const showUser = user => {
-    $('authArea').classList.toggle('hidden', !!user);
-    $('dashboard').classList.toggle('hidden', !user);
-    $('userEmail').textContent = user?.email || '';
+    currentUser = user || null;
+    $('authArea').classList.toggle('hidden', !currentUser);
+    $('dashboard').classList.toggle('hidden', !currentUser);
+    $('userEmail').textContent = currentUser?.email || '';
+    if (currentUser) {
+      renderMatches();
+    }
   };
 
   $('signupForm').addEventListener('submit', async e => {
-    e.preventDefault(); setMsg('signupMsg','Создаём аккаунт…');
-    const email=$('signupEmail').value.trim(), password=$('signupPassword').value;
-    const {data,error}=await supabase.auth.signUp({email,password});
-    if(error){setMsg('signupMsg',error.message,'error');return;}
-    if(data.session){showUser(data.user);setMsg('dashMsg','Аккаунт создан.','ok');}
-    else{setMsg('signupMsg','Почти готово! Проверь почту и подтверди регистрацию, затем войди.','ok');}
+    e.preventDefault();
+    setMsg('signupMsg', 'Создаём аккаунт…');
+    const email = $('signupEmail').value.trim();
+    const password = $('signupPassword').value;
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      setMsg('signupMsg', error.message, 'error');
+      return;
+    }
+    if (data.session) {
+      showUser(data.user);
+      setMsg('dashMsg', 'Аккаунт создан.', 'ok');
+    } else {
+      setMsg('signupMsg', 'Почти готово! Проверь почту и подтверди регистрацию, затем войди.', 'ok');
+    }
   });
 
   $('loginForm').addEventListener('submit', async e => {
-    e.preventDefault(); setMsg('loginMsg','Входим…');
-    const {data,error}=await supabase.auth.signInWithPassword({
-      email:$('loginEmail').value.trim(),password:$('loginPassword').value
+    e.preventDefault();
+    setMsg('loginMsg', 'Входим…');
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: $('loginEmail').value.trim(),
+      password: $('loginPassword').value
     });
-    if(error){setMsg('loginMsg',error.message,'error');return;}
-    showUser(data.user);setMsg('dashMsg','Ты успешно вошёл в аккаунт.','ok');
+    if (error) {
+      setMsg('loginMsg', error.message, 'error');
+      return;
+    }
+    showUser(data.user);
+    setMsg('dashMsg', 'Ты успешно вошёл в аккаунт.', 'ok');
   });
 
   $('resetBtn').addEventListener('click', async () => {
-    const email=$('loginEmail').value.trim();
-    if(!email){setMsg('loginMsg','Сначала введи email в поле выше.','error');return;}
-    setMsg('loginMsg','Отправляем письмо…');
-    const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});
-    setMsg('loginMsg',error?error.message:'Если адрес зарегистрирован, письмо для сброса пароля отправлено.',error?'error':'ok');
+    const email = $('loginEmail').value.trim();
+    if (!email) {
+      setMsg('loginMsg', 'Сначала введи email в поле выше.', 'error');
+      return;
+    }
+    setMsg('loginMsg', 'Отправляем письмо…');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin
+    });
+    setMsg(
+      'loginMsg',
+      error ? error.message : 'Если адрес зарегистрирован, письмо для сброса пароля отправлено.',
+      error ? 'error' : 'ok'
+    );
   });
 
   $('logoutBtn').addEventListener('click', async () => {
-    const {error}=await supabase.auth.signOut();
-    if(error){setMsg('dashMsg',error.message,'error');return;}
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setMsg('dashMsg', error.message, 'error');
+      return;
+    }
     showUser(null);
   });
 
-  const {data:{session}}=await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
   showUser(session?.user || null);
-  supabase.auth.onAuthStateChange((_event,session)=>showUser(session?.user || null));
+  supabase.auth.onAuthStateChange((_event, session) => showUser(session?.user || null));
 </script>
 </body>
 </html>
