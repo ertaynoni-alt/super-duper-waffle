@@ -3,10 +3,13 @@ import cors from 'cors';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
 import { parseEvent, parseHeader } from '@laihoe/demoparser2';
-import { decompress as zstdDecompress } from 'fzstd';
+import { Decompress as FzstdStreamDecompress } from 'fzstd';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
+import { Transform } from 'node:stream';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -19,8 +22,11 @@ const SUPABASE_ANON_KEY =
   process.env.SUPABASE_PUBLISHABLE_KEY ||
   'sb_publishable_M-Dlo8GKZ4TV_NwcPW8XuQ_7AyVBP5n';
 
-const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES) || 800 * 1024 * 1024; // 800 МБ
-const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 10 * 60 * 1000; // 10 мин
+// Ограничения с учётом Render Free (512 MB RAM, временный диск, таймауты прокси)
+const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES) || 350 * 1024 * 1024; // 350 MB
+const MAX_UNPACKED_BYTES = Number(process.env.MAX_UNPACKED_BYTES) || 1200 * 1024 * 1024; // 1.2 GB на диске
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 3 * 60 * 1000; // 3 мин на сам upload
+const JOB_TTL_MS = Number(process.env.JOB_TTL_MS) || 60 * 60 * 1000; // 1 час хранения статуса в памяти
 
 const ALLOWED_ORIGINS = new Set([
   'https://famous-pothos-ee0313.netlify.app',
@@ -40,14 +46,27 @@ const tempUploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs2-demo-'));
 
 const ts = () => new Date().toISOString();
 
+const logMem = () => {
+  const m = process.memoryUsage();
+  return {
+    rssMB: Math.round(m.rss / (1024 * 1024)),
+    heapUsedMB: Math.round(m.heapUsed / (1024 * 1024)),
+    externalMB: Math.round(m.external / (1024 * 1024))
+  };
+};
+
 const logInfo = (stage, message, extra = {}) => {
   const payload = {
     time: ts(),
     stage,
     message,
+    mem: logMem(),
     ...extra
   };
-  console.log(`[${payload.time}][CS2-SERVER][${stage}] ${message}`, Object.keys(extra).length ? JSON.stringify(extra) : '');
+  console.log(
+    `[${payload.time}][CS2-SERVER][${stage}] ${message}`,
+    JSON.stringify({ mem: payload.mem, ...extra })
+  );
 };
 
 const logError = (stage, err, extra = {}) => {
@@ -58,19 +77,21 @@ const logError = (stage, err, extra = {}) => {
     code: err?.code,
     status: err?.status,
     stack: err?.stack,
+    mem: logMem(),
     ...extra
   };
   console.error(`[${details.time}][CS2-SERVER][${stage}][ERROR]`, JSON.stringify(details, null, 2));
 };
 
-const cleanupFiles = async filePaths => {
+const cleanupFiles = async (filePaths, reqId = null) => {
   for (const filePath of filePaths) {
     if (!filePath) continue;
     try {
       await fs.promises.unlink(filePath);
+      logInfo('cleanup', `Removed temp file: ${path.basename(filePath)}`, { reqId, filePath });
     } catch (unlinkErr) {
       if (unlinkErr?.code !== 'ENOENT') {
-        logError('cleanup', unlinkErr, { filePath });
+        logError('cleanup', unlinkErr, { reqId, filePath });
       }
     }
   }
@@ -110,7 +131,6 @@ const corsOptions = {
 const app = express();
 app.disable('x-powered-by');
 
-// 1. Логирование получения HTTP-запроса: метод, URL и Origin
 app.use((req, res, next) => {
   const reqId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   req.reqId = reqId;
@@ -220,6 +240,54 @@ const requireSupabaseAuth = async (req, res, next) => {
   }
 };
 
+// Хранилище фоновых заданий в памяти процесса (учитывает возможный рестарт экземпляра Render Free)
+const jobs = new Map();
+
+const createJobRecord = ({ jobId, userId, playerNick, fileName, fileSize }) => {
+  const now = new Date().toISOString();
+  const record = {
+    jobId,
+    userId,
+    playerNick,
+    fileName,
+    fileSize,
+    status: 'queued', // queued | decompressing | parsing | completed | failed
+    stage: 'queued',
+    progressMessage: 'Задание поставлено в очередь на обработку.',
+    createdAt: now,
+    updatedAt: now,
+    decompressedZst: fileName.toLowerCase().endsWith('.dem.zst'),
+    replayPrepared: false,
+    kills: null,
+    error: null
+  };
+  jobs.set(jobId, record);
+  return record;
+};
+
+const updateJob = (jobId, patch) => {
+  const current = jobs.get(jobId);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString()
+  };
+  jobs.set(jobId, next);
+  return next;
+};
+
+// Периодическая очистка старых записей заданий из RAM
+setInterval(() => {
+  const cutoff = Date.now() - JOB_TTL_MS;
+  for (const [id, job] of jobs.entries()) {
+    const createdTime = Date.parse(job.createdAt || '');
+    if (Number.isFinite(createdTime) && createdTime < cutoff) {
+      jobs.delete(id);
+    }
+  }
+}, 5 * 60 * 1000).unref();
+
 const storage = multer.diskStorage({
   destination(_req, _file, cb) {
     cb(null, tempUploadDir);
@@ -290,6 +358,70 @@ const hasZstdCli = async () => {
   }
 };
 
+// Потоковая распаковка .dem.zst через fzstd.Decompress (без загрузки всего распакованного файла в RAM)
+const decompressZstStream = async (zstPath, outDemPath, reqId) => {
+  let unpackedBytes = 0;
+  let lastLoggedMB = 0;
+
+  const decoder = new FzstdStreamDecompress((chunk, final) => {
+    if (chunk && chunk.length > 0) {
+      unpackedBytes += chunk.length;
+      if (unpackedBytes > MAX_UNPACKED_BYTES) {
+        transformStream.destroy(
+          new Error(`Распакованный файл превысил лимит ${Math.round(MAX_UNPACKED_BYTES / (1024 * 1024))} МБ.`)
+        );
+        return;
+      }
+      const currentMB = Math.floor(unpackedBytes / (100 * 1024 * 1024));
+      if (currentMB > lastLoggedMB) {
+        lastLoggedMB = currentMB;
+        logInfo('zstd-stream-progress', `Decompressed ${Math.round(unpackedBytes / (1024 * 1024))} MB so far`, {
+          reqId,
+          unpackedBytes
+        });
+      }
+      transformStream.push(Buffer.from(chunk));
+    }
+    if (final) {
+      transformStream.push(null);
+    }
+  });
+
+  const transformStream = new Transform({
+    writableObjectMode: false,
+    readableObjectMode: false,
+    transform(chunk, _encoding, callback) {
+      try {
+        decoder.push(
+          new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength),
+          false
+        );
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+    flush(callback) {
+      try {
+        decoder.push(new Uint8Array(0), true);
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    }
+  });
+
+  await pipeline(
+    fs.createReadStream(zstPath, { highWaterMark: 256 * 1024 }),
+    transformStream,
+    fs.createWriteStream(outDemPath, { highWaterMark: 256 * 1024 })
+  );
+
+  if (unpackedBytes < 16) {
+    throw new Error('Распакованный поток Zstandard пуст или повреждён.');
+  }
+};
+
 const decompressZstFile = async (zstPath, outDemPath, reqId) => {
   const cliAvailable = await hasZstdCli();
   if (cliAvailable) {
@@ -300,18 +432,8 @@ const decompressZstFile = async (zstPath, outDemPath, reqId) => {
     return;
   }
 
-  logInfo('zstd-unpack', `Decompressing via fzstd library: ${zstPath} -> ${outDemPath}`, { reqId });
-  const compressedBuffer = await fs.promises.readFile(zstPath);
-  const compressedBytes = new Uint8Array(
-    compressedBuffer.buffer,
-    compressedBuffer.byteOffset,
-    compressedBuffer.byteLength
-  );
-  const decompressedBytes = zstdDecompress(compressedBytes);
-  if (!decompressedBytes || decompressedBytes.length < 16) {
-    throw new Error('Распакованный поток Zstandard пуст или повреждён.');
-  }
-  await fs.promises.writeFile(outDemPath, Buffer.from(decompressedBytes));
+  logInfo('zstd-unpack', `Decompressing via streaming fzstd.Decompress: ${zstPath} -> ${outDemPath}`, { reqId });
+  await decompressZstStream(zstPath, outDemPath, reqId);
 };
 
 const normalizeNick = value => String(value || '').trim().toLowerCase();
@@ -391,137 +513,190 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
   return matchedKills;
 };
 
-app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'cs2-kill-editor-server', time: ts() });
-});
-
-const handleAnalyzeDemo = async (req, res) => {
-  const filesToCleanup = [];
+// Фоновая обработка задания после отправки HTTP 202 с jobId
+const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalName, fileSize, playerNick }) => {
+  const filesToCleanup = [uploadedPath];
+  const isZst = originalName.toLowerCase().endsWith('.dem.zst');
+  let workingDemPath = uploadedPath;
   const startedAt = Date.now();
 
   try {
-    const uploadedFile = req.file;
-    if (uploadedFile?.path) {
-      filesToCleanup.push(uploadedFile.path);
-    }
-
-    const playerNick = typeof req.body?.playerNick === 'string' ? req.body.playerNick.trim() : '';
-
-    if (!uploadedFile) {
-      logError('validation', new Error('Missing multipart file "demo"'), { reqId: req.reqId });
-      return res.status(400).json({
-        message: 'Не получен файл в поле multipart "demo".'
-      });
-    }
-
-    if (!playerNick) {
-      logError('validation', new Error('Missing required field "playerNick"'), { reqId: req.reqId });
-      return res.status(400).json({
-        message: 'Не указан обязательный параметр "playerNick".'
-      });
-    }
-
-    const originalName = uploadedFile.originalname || 'match.dem';
-    const isZst = originalName.toLowerCase().endsWith('.dem.zst');
-    let workingDemPath = uploadedFile.path;
-
     if (isZst) {
-      // 4. Начало распаковки .dem.zst
-      logInfo('decompress-start', `Starting .dem.zst decompression for "${originalName}" (${uploadedFile.size} bytes)`, {
-        reqId: req.reqId,
-        userId: req.supabaseUser.id,
-        fileName: originalName,
-        fileSize: uploadedFile.size
+      updateJob(jobId, {
+        status: 'decompressing',
+        stage: 'decompressing',
+        progressMessage: 'Распаковка архива .dem.zst...'
       });
 
-      const validZst = await hasMagicBytes(uploadedFile.path, ZSTD_MAGIC);
+      logInfo('decompress-start', `Starting .dem.zst decompression for "${originalName}" (${fileSize} bytes)`, {
+        reqId: jobId,
+        userId,
+        fileName: originalName,
+        fileSize
+      });
+
+      const validZst = await hasMagicBytes(uploadedPath, ZSTD_MAGIC);
       if (!validZst) {
-        const invalidZstErr = new Error('Файл имеет расширение .dem.zst, но не содержит валидный заголовок Zstandard.');
-        logError('decompress-invalid-magic', invalidZstErr, {
-          reqId: req.reqId,
-          fileName: originalName
-        });
-        return res.status(400).json({
-          message: invalidZstErr.message
-        });
+        throw new Error('Файл имеет расширение .dem.zst, но не содержит валидный заголовок Zstandard.');
       }
 
-      const unpackedDemPath = path.join(tempUploadDir, `${path.basename(uploadedFile.path, '.zst')}_${Date.now()}.dem`);
+      const unpackedDemPath = path.join(
+        tempUploadDir,
+        `${path.basename(uploadedPath, '.zst')}_${Date.now()}.dem`
+      );
       filesToCleanup.push(unpackedDemPath);
 
       const decompressStart = Date.now();
-      await decompressZstFile(uploadedFile.path, unpackedDemPath, req.reqId);
+      await decompressZstFile(uploadedPath, unpackedDemPath, jobId);
       workingDemPath = unpackedDemPath;
 
       const unpackedStat = await fs.promises.stat(unpackedDemPath);
-      // 5. Завершение распаковки
-      logInfo('decompress-done', `Finished .dem.zst decompression -> "${path.basename(unpackedDemPath)}" (${unpackedStat.size} bytes) in ${Date.now() - decompressStart} ms`, {
-        reqId: req.reqId,
-        userId: req.supabaseUser.id,
-        sourceFile: originalName,
-        unpackedFile: path.basename(unpackedDemPath),
-        unpackedSizeBytes: unpackedStat.size,
-        durationMs: Date.now() - decompressStart
-      });
+      logInfo(
+        'decompress-done',
+        `Finished .dem.zst decompression -> "${path.basename(unpackedDemPath)}" (${unpackedStat.size} bytes) in ${Date.now() - decompressStart} ms`,
+        {
+          reqId: jobId,
+          userId,
+          sourceFile: originalName,
+          unpackedFile: path.basename(unpackedDemPath),
+          unpackedSizeBytes: unpackedStat.size,
+          durationMs: Date.now() - decompressStart
+        }
+      );
     }
 
-    // 6. Начало парсинга через @laihoe/demoparser2
+    updateJob(jobId, {
+      status: 'parsing',
+      stage: 'parsing',
+      progressMessage: 'Анализ событий демозаписи через @laihoe/demoparser2...'
+    });
+
     logInfo('parse-start', `Starting @laihoe/demoparser2 analysis for playerNick="${playerNick}"`, {
-      reqId: req.reqId,
-      userId: req.supabaseUser.id,
+      reqId: jobId,
+      userId,
       fileName: originalName,
       playerNick
     });
 
     const parseStart = Date.now();
-    const kills = await parseKillsFromDemFile(workingDemPath, playerNick, req.reqId);
+    const kills = await parseKillsFromDemFile(workingDemPath, playerNick, jobId);
     const parseDurationMs = Date.now() - parseStart;
     const elapsedMs = Date.now() - startedAt;
 
-    // 7. Завершение парсинга и количество найденных убийств
-    logInfo('parse-done', `Completed @laihoe/demoparser2 analysis: found ${kills.length} kills for "${playerNick}" in ${parseDurationMs} ms (total ${elapsedMs} ms)`, {
-      reqId: req.reqId,
-      userId: req.supabaseUser.id,
-      nick: playerNick,
-      file: originalName,
-      killsCount: kills.length,
-      parseDurationMs,
-      totalElapsedMs: elapsedMs
-    });
+    logInfo(
+      'parse-done',
+      `Completed @laihoe/demoparser2 analysis: found ${kills.length} kills for "${playerNick}" in ${parseDurationMs} ms (total ${elapsedMs} ms)`,
+      {
+        reqId: jobId,
+        userId,
+        nick: playerNick,
+        file: originalName,
+        killsCount: kills.length,
+        parseDurationMs,
+        totalElapsedMs: elapsedMs
+      }
+    );
 
-    return res.status(200).json({
-      ok: true,
-      playerNick,
-      fileName: originalName,
+    updateJob(jobId, {
+      status: 'completed',
+      stage: 'completed',
+      progressMessage: 'Обработка демозаписи завершена.',
       decompressedZst: isZst,
       replayPrepared: kills.length > 0,
-      kills
+      kills,
+      error: null
     });
   } catch (err) {
-    // 8. Все ошибки и тайм-ауты
-    logError('analyze-demo', err, {
-      reqId: req.reqId,
-      userId: req.supabaseUser?.id,
-      fileName: req.file?.originalname,
-      fileSize: req.file?.size,
-      playerNick: req.body?.playerNick,
+    logError('job-failed', err, {
+      reqId: jobId,
+      userId,
+      fileName: originalName,
+      fileSize,
+      playerNick,
       elapsedMs: Date.now() - startedAt
     });
 
-    const status = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
-    return res.status(status).json({
-      message: err?.message || 'Ошибка при обработке файла демозаписи на сервере.'
+    updateJob(jobId, {
+      status: 'failed',
+      stage: 'failed',
+      progressMessage: 'Ошибка при обработке файла демозаписи.',
+      error: err?.message || 'Ошибка при обработке файла демозаписи на сервере.'
     });
   } finally {
-    await cleanupFiles(filesToCleanup);
+    await cleanupFiles(filesToCleanup, jobId);
   }
+};
+
+app.get('/health', (_req, res) => {
+  res.status(200).json({ ok: true, service: 'cs2-kill-editor-server', time: ts() });
+});
+
+// Приём файла и постановка фонового задания -> возвращает jobId
+const handleStartAnalyzeJob = async (req, res) => {
+  const uploadedFile = req.file;
+  const playerNick = typeof req.body?.playerNick === 'string' ? req.body.playerNick.trim() : '';
+
+  if (!uploadedFile) {
+    logError('validation', new Error('Missing multipart file "demo"'), { reqId: req.reqId });
+    return res.status(400).json({
+      message: 'Не получен файл в поле multipart "demo".'
+    });
+  }
+
+  if (!playerNick) {
+    await cleanupFiles([uploadedFile.path], req.reqId);
+    logError('validation', new Error('Missing required field "playerNick"'), { reqId: req.reqId });
+    return res.status(400).json({
+      message: 'Не указан обязательный параметр "playerNick".'
+    });
+  }
+
+  const jobId = crypto.randomUUID();
+  const originalName = uploadedFile.originalname || 'match.dem';
+
+  createJobRecord({
+    jobId,
+    userId: req.supabaseUser.id,
+    playerNick,
+    fileName: originalName,
+    fileSize: uploadedFile.size
+  });
+
+  logInfo('job-created', `Created background job ${jobId} for "${originalName}" (${uploadedFile.size} bytes)`, {
+    reqId: req.reqId,
+    jobId,
+    userId: req.supabaseUser.id,
+    playerNick,
+    fileName: originalName,
+    fileSize: uploadedFile.size
+  });
+
+  // Запускаем обработку асинхронно в следующем тике event loop после ответа HTTP
+  setImmediate(() => {
+    runDemoJobInBackground({
+      jobId,
+      userId: req.supabaseUser.id,
+      uploadedPath: uploadedFile.path,
+      originalName,
+      fileSize: uploadedFile.size,
+      playerNick
+    });
+  });
+
+  return res.status(202).json({
+    ok: true,
+    jobId,
+    status: 'queued',
+    playerNick,
+    fileName: originalName,
+    statusUrl: `/api/v1/demos/status/${jobId}`
+  });
 };
 
 app.post(
   '/api/v1/demos/analyze',
   requireSupabaseAuth,
   (req, res, next) => {
-    // 2. Начало загрузки файла через Multer
     logInfo('multer-upload-start', `Starting Multer upload for ${req.originalUrl}`, {
       reqId: req.reqId,
       userId: req.supabaseUser?.id,
@@ -555,22 +730,103 @@ app.post(
         });
       }
 
-      // 3. Завершение загрузки: имя и размер файла
-      logInfo('multer-upload-done', `Multer upload completed: file="${req.file?.originalname || 'none'}", size=${req.file?.size ?? 0} bytes in ${Date.now() - uploadStart} ms`, {
-        reqId: req.reqId,
-        userId: req.supabaseUser?.id,
-        fileName: req.file?.originalname || null,
-        storedPath: req.file?.path || null,
-        fileSizeBytes: req.file?.size ?? 0,
-        playerNick: req.body?.playerNick || null,
-        durationMs: Date.now() - uploadStart
-      });
+      logInfo(
+        'multer-upload-done',
+        `Multer upload completed: file="${req.file?.originalname || 'none'}", size=${req.file?.size ?? 0} bytes in ${Date.now() - uploadStart} ms`,
+        {
+          reqId: req.reqId,
+          userId: req.supabaseUser?.id,
+          fileName: req.file?.originalname || null,
+          storedPath: req.file?.path || null,
+          fileSizeBytes: req.file?.size ?? 0,
+          playerNick: req.body?.playerNick || null,
+          durationMs: Date.now() - uploadStart
+        }
+      );
 
       return next();
     });
   },
-  handleAnalyzeDemo
+  handleStartAnalyzeJob
 );
+
+// Получение статуса задания и результата
+app.get('/api/v1/demos/status/:jobId', requireSupabaseAuth, (req, res) => {
+  const { jobId } = req.params;
+  const job = jobs.get(jobId);
+
+  if (!job) {
+    logInfo('job-status-not-found', `Job ${jobId} not found (may have expired or server restarted)`, {
+      reqId: req.reqId,
+      jobId,
+      userId: req.supabaseUser.id
+    });
+    return res.status(404).json({
+      ok: false,
+      jobId,
+      status: 'not_found',
+      message: 'Задание не найдено. Возможно, оно истекло или сервер Render перезапускался.'
+    });
+  }
+
+  if (job.userId !== req.supabaseUser.id) {
+    logError('job-status-forbidden', new Error('User attempted to access another user job'), {
+      reqId: req.reqId,
+      jobId,
+      requestUserId: req.supabaseUser.id,
+      ownerUserId: job.userId
+    });
+    return res.status(403).json({
+      ok: false,
+      message: 'Доступ к этому заданию запрещён.'
+    });
+  }
+
+  if (job.status === 'completed') {
+    return res.status(200).json({
+      ok: true,
+      jobId: job.jobId,
+      status: job.status,
+      stage: job.stage,
+      progressMessage: job.progressMessage,
+      playerNick: job.playerNick,
+      fileName: job.fileName,
+      decompressedZst: job.decompressedZst,
+      replayPrepared: job.replayPrepared,
+      kills: job.kills,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt
+    });
+  }
+
+  if (job.status === 'failed') {
+    return res.status(200).json({
+      ok: false,
+      jobId: job.jobId,
+      status: job.status,
+      stage: job.stage,
+      progressMessage: job.progressMessage,
+      playerNick: job.playerNick,
+      fileName: job.fileName,
+      error: job.error,
+      message: job.error,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    jobId: job.jobId,
+    status: job.status,
+    stage: job.stage,
+    progressMessage: job.progressMessage,
+    playerNick: job.playerNick,
+    fileName: job.fileName,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt
+  });
+});
 
 app.use((err, req, res, _next) => {
   logError('unhandled-express', err, { reqId: req?.reqId });
@@ -594,6 +850,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     nodeVersion: process.version,
     tempDir: tempUploadDir,
     maxUploadMB: Math.round(MAX_UPLOAD_BYTES / (1024 * 1024)),
+    maxUnpackedMB: Math.round(MAX_UNPACKED_BYTES / (1024 * 1024)),
     requestTimeoutMs: REQUEST_TIMEOUT_MS
   });
 });
