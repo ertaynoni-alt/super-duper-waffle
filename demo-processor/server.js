@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import { Transform } from 'node:stream';
+import { Writable } from 'node:stream';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -22,11 +22,10 @@ const SUPABASE_ANON_KEY =
   process.env.SUPABASE_PUBLISHABLE_KEY ||
   'sb_publishable_M-Dlo8GKZ4TV_NwcPW8XuQ_7AyVBP5n';
 
-// Ограничения с учётом Render Free (512 MB RAM, временный диск, таймауты прокси)
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES) || 350 * 1024 * 1024; // 350 MB
-const MAX_UNPACKED_BYTES = Number(process.env.MAX_UNPACKED_BYTES) || 1200 * 1024 * 1024; // 1.2 GB на диске
-const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 3 * 60 * 1000; // 3 мин на сам upload
-const JOB_TTL_MS = Number(process.env.JOB_TTL_MS) || 60 * 60 * 1000; // 1 час хранения статуса в памяти
+const MAX_UNPACKED_BYTES = Number(process.env.MAX_UNPACKED_BYTES) || 1200 * 1024 * 1024; // 1.2 GB Ð½Ð° Ð´Ð¸ÑÐºÐµ
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 3 * 60 * 1000; // 3 Ð¼Ð¸Ð½ Ð½Ð° upload
+const JOB_TTL_MS = Number(process.env.JOB_TTL_MS) || 60 * 60 * 1000; // 1 ÑÐ°Ñ ÑÑÐ°Ð½ÐµÐ½Ð¸Ñ ÑÑÐ°ÑÑÑÐ° Ð² Ð¿Ð°Ð¼ÑÑÐ¸
 
 const ALLOWED_ORIGINS = new Set([
   'https://famous-pothos-ee0313.netlify.app',
@@ -210,7 +209,7 @@ const requireSupabaseAuth = async (req, res, next) => {
         path: req.originalUrl
       });
       return res.status(401).json({
-        message: 'Требуется авторизация: отсутствует Bearer access_token в заголовке Authorization.'
+        message: 'Ð¢ÑÐµÐ±ÑÐµÑÑÑ Ð°Ð²ÑÐ¾ÑÐ¸Ð·Ð°ÑÐ¸Ñ: Ð¾ÑÑÑÑÑÑÐ²ÑÐµÑ Bearer access_token Ð² Ð·Ð°Ð³Ð¾Ð»Ð¾Ð²ÐºÐµ Authorization.'
       });
     }
 
@@ -221,7 +220,7 @@ const requireSupabaseAuth = async (req, res, next) => {
         path: req.originalUrl
       });
       return res.status(401).json({
-        message: 'Недействительный или истёкший токен авторизации Supabase.'
+        message: 'ÐÐµÐ´ÐµÐ¹ÑÑÐ²Ð¸ÑÐµÐ»ÑÐ½ÑÐ¹ Ð¸Ð»Ð¸ Ð¸ÑÑÑÐºÑÐ¸Ð¹ ÑÐ¾ÐºÐµÐ½ Ð°Ð²ÑÐ¾ÑÐ¸Ð·Ð°ÑÐ¸Ð¸ Supabase.'
       });
     }
 
@@ -235,12 +234,11 @@ const requireSupabaseAuth = async (req, res, next) => {
   } catch (err) {
     logError('auth-middleware', err, { reqId: req.reqId });
     return res.status(500).json({
-      message: 'Внутренняя ошибка при проверке авторизации Supabase.'
+      message: 'ÐÐ½ÑÑÑÐµÐ½Ð½ÑÑ Ð¾ÑÐ¸Ð±ÐºÐ° Ð¿ÑÐ¸ Ð¿ÑÐ¾Ð²ÐµÑÐºÐµ Ð°Ð²ÑÐ¾ÑÐ¸Ð·Ð°ÑÐ¸Ð¸ Supabase.'
     });
   }
 };
 
-// Хранилище фоновых заданий в памяти процесса (учитывает возможный рестарт экземпляра Render Free)
 const jobs = new Map();
 
 const createJobRecord = ({ jobId, userId, playerNick, fileName, fileSize }) => {
@@ -251,9 +249,9 @@ const createJobRecord = ({ jobId, userId, playerNick, fileName, fileSize }) => {
     playerNick,
     fileName,
     fileSize,
-    status: 'queued', // queued | decompressing | parsing | completed | failed
+    status: 'queued',
     stage: 'queued',
-    progressMessage: 'Задание поставлено в очередь на обработку.',
+    progressMessage: 'ÐÐ°Ð´Ð°Ð½Ð¸Ðµ Ð¿Ð¾ÑÑÐ°Ð²Ð»ÐµÐ½Ð¾ Ð² Ð¾ÑÐµÑÐµÐ´Ñ Ð½Ð° Ð¾Ð±ÑÐ°Ð±Ð¾ÑÐºÑ.',
     createdAt: now,
     updatedAt: now,
     decompressedZst: fileName.toLowerCase().endsWith('.dem.zst'),
@@ -277,7 +275,6 @@ const updateJob = (jobId, patch) => {
   return next;
 };
 
-// Периодическая очистка старых записей заданий из RAM
 setInterval(() => {
   const cutoff = Date.now() - JOB_TTL_MS;
   for (const [id, job] of jobs.entries()) {
@@ -319,7 +316,7 @@ const upload = multer({
   },
   fileFilter(req, file, cb) {
     if (!isSupportedDemoName(file.originalname)) {
-      const err = new Error('Допускаются только файлы .dem и .dem.zst.');
+      const err = new Error('ÐÐ¾Ð¿ÑÑÐºÐ°ÑÑÑÑ ÑÐ¾Ð»ÑÐºÐ¾ ÑÐ°Ð¹Ð»Ñ .dem Ð¸ .dem.zst.');
       err.statusCode = 400;
       logError('multer-file-filter', err, {
         reqId: req.reqId,
@@ -358,17 +355,98 @@ const hasZstdCli = async () => {
   }
 };
 
-// Потоковая распаковка .dem.zst через fzstd.Decompress (без загрузки всего распакованного файла в RAM)
+const yieldToEventLoop = () => new Promise(resolve => setImmediate(resolve));
+
+// ÐÐ¾ÑÐ¾ÐºÐ¾Ð²Ð°Ñ ÑÐ°ÑÐ¿Ð°ÐºÐ¾Ð²ÐºÐ° .dem.zst ÑÐµÑÐµÐ· fzstd.Decompress Ñ ÐºÐ¾ÑÑÐµÐºÑÐ½ÑÐ¼ backpressure
+// Ð¸ ÑÑÑÑÐ¿ÐºÐ¾Ð¹ event loop Ð¼ÐµÐ¶Ð´Ñ ÑÐ°Ð½ÐºÐ°Ð¼Ð¸, ÑÑÐ¾Ð±Ñ Ð½Ðµ ÑÐ´ÐµÑÐ¶Ð¸Ð²Ð°ÑÑ HTTP-ÑÐ¾ÐºÐµÑÑ Ð¸ Ð½Ðµ Ð±Ð»Ð¾ÐºÐ¸ÑÐ¾Ð²Ð°ÑÑ event loop
 const decompressZstStream = async (zstPath, outDemPath, reqId) => {
   let unpackedBytes = 0;
   let lastLoggedMB = 0;
+  let chunksSinceYield = 0;
+  let streamError = null;
 
-  const decoder = new FzstdStreamDecompress((chunk, final) => {
+  const readStream = fs.createReadStream(zstPath, { highWaterMark: 256 * 1024 });
+  const writeStream = fs.createWriteStream(outDemPath, { highWaterMark: 256 * 1024 });
+
+  const abortStreams = err => {
+    if (!streamError) {
+      streamError = err;
+    }
+    readStream.destroy(err);
+    writeStream.destroy(err);
+  };
+
+  const writeChunkWithBackpressure = chunk =>
+    new Promise((resolve, reject) => {
+      if (streamError) {
+        reject(streamError);
+        return;
+      }
+      if (writeStream.closed || writeStream.destroyed) {
+        reject(new Error('ÐÐ¾ÑÐ¾Ðº Ð·Ð°Ð¿Ð¸ÑÐ¸ ÑÐ°ÑÐ¿Ð°ÐºÐ¾Ð²Ð°Ð½Ð½Ð¾Ð³Ð¾ ÑÐ°Ð¹Ð»Ð° Ð±ÑÐ» Ð·Ð°ÐºÑÑÑ Ð´Ð¾ Ð·Ð°Ð²ÐµÑÑÐµÐ½Ð¸Ñ.'));
+        return;
+      }
+      const canContinue = writeStream.write(chunk);
+      if (canContinue) {
+        resolve();
+      } else {
+        const onDrain = () => {
+          cleanupListeners();
+          resolve();
+        };
+        const onClose = () => {
+          cleanupListeners();
+          reject(new Error('ÐÐ¾ÑÐ¾Ðº Ð·Ð°Ð¿Ð¸ÑÐ¸ Ð·Ð°ÐºÑÑÑ Ð²Ð¾ Ð²ÑÐµÐ¼Ñ Ð¾Ð¶Ð¸Ð´Ð°Ð½Ð¸Ñ drain.'));
+        };
+        const onError = err => {
+          cleanupListeners();
+          reject(err);
+        };
+        const cleanupListeners = () => {
+          writeStream.off('drain', onDrain);
+          writeStream.off('close', onClose);
+          writeStream.off('error', onError);
+        };
+        writeStream.once('drain', onDrain);
+        writeStream.once('close', onClose);
+        writeStream.once('error', onError);
+      }
+    });
+
+  const endWriteStream = () =>
+    new Promise((resolve, reject) => {
+      if (writeStream.writableFinished) {
+        resolve();
+        return;
+      }
+      if (writeStream.closed || writeStream.destroyed) {
+        resolve();
+        return;
+      }
+      const onFinish = () => {
+        cleanupListeners();
+        resolve();
+      };
+      const onError = err => {
+        cleanupListeners();
+        reject(err);
+      };
+      const cleanupListeners = () => {
+        writeStream.off('finish', onFinish);
+        writeStream.off('error', onError);
+      };
+      writeStream.once('finish', onFinish);
+      writeStream.once('error', onError);
+      writeStream.end();
+    });
+
+  const decoder = new FzstdStreamDecompress((chunk, _final) => {
+    if (streamError) return;
     if (chunk && chunk.length > 0) {
       unpackedBytes += chunk.length;
       if (unpackedBytes > MAX_UNPACKED_BYTES) {
-        transformStream.destroy(
-          new Error(`Распакованный файл превысил лимит ${Math.round(MAX_UNPACKED_BYTES / (1024 * 1024))} МБ.`)
+        abortStreams(
+          new Error(`Ð Ð°ÑÐ¿Ð°ÐºÐ¾Ð²Ð°Ð½Ð½ÑÐ¹ ÑÐ°Ð¹Ð» Ð¿ÑÐµÐ²ÑÑÐ¸Ð» Ð»Ð¸Ð¼Ð¸Ñ ${Math.round(MAX_UNPACKED_BYTES / (1024 * 1024))} ÐÐ.`)
         );
         return;
       }
@@ -380,45 +458,53 @@ const decompressZstStream = async (zstPath, outDemPath, reqId) => {
           unpackedBytes
         });
       }
-      transformStream.push(Buffer.from(chunk));
-    }
-    if (final) {
-      transformStream.push(null);
+      writeStream.write(Buffer.from(chunk));
     }
   });
 
-  const transformStream = new Transform({
-    writableObjectMode: false,
-    readableObjectMode: false,
-    transform(chunk, _encoding, callback) {
-      try {
-        decoder.push(
-          new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength),
-          false
-        );
-        callback();
-      } catch (err) {
-        callback(err);
+  try {
+    for await (const rawChunk of readStream) {
+      if (streamError) {
+        throw streamError;
       }
-    },
-    flush(callback) {
-      try {
-        decoder.push(new Uint8Array(0), true);
-        callback();
-      } catch (err) {
-        callback(err);
+      const bytes = new Uint8Array(rawChunk.buffer, rawChunk.byteOffset, rawChunk.byteLength);
+      decoder.push(bytes, false);
+
+      if (streamError) {
+        throw streamError;
+      }
+
+      if (writeStream.writableNeedDrain) {
+        await writeChunkWithBackpressure(Buffer.alloc(0));
+      }
+
+      chunksSinceYield += 1;
+      if (chunksSinceYield >= 8) {
+        chunksSinceYield = 0;
+        await yieldToEventLoop();
       }
     }
-  });
 
-  await pipeline(
-    fs.createReadStream(zstPath, { highWaterMark: 256 * 1024 }),
-    transformStream,
-    fs.createWriteStream(outDemPath, { highWaterMark: 256 * 1024 })
-  );
+    decoder.push(new Uint8Array(0), true);
+    if (streamError) {
+      throw streamError;
+    }
 
-  if (unpackedBytes < 16) {
-    throw new Error('Распакованный поток Zstandard пуст или повреждён.');
+    await endWriteStream();
+
+    if (unpackedBytes < 16) {
+      throw new Error('Ð Ð°ÑÐ¿Ð°ÐºÐ¾Ð²Ð°Ð½Ð½ÑÐ¹ Ð¿Ð¾ÑÐ¾Ðº Zstandard Ð¿ÑÑÑ Ð¸Ð»Ð¸ Ð¿Ð¾Ð²ÑÐµÐ¶Ð´ÑÐ½.');
+    }
+  } catch (err) {
+    abortStreams(err);
+    throw err;
+  } finally {
+    if (!readStream.closed && !readStream.destroyed) {
+      readStream.destroy();
+    }
+    if (!writeStream.closed && !writeStream.destroyed) {
+      writeStream.destroy();
+    }
   }
 };
 
@@ -441,12 +527,12 @@ const normalizeNick = value => String(value || '').trim().toLowerCase();
 const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
   const stat = await fs.promises.stat(demPath);
   if (!stat.isFile() || stat.size < 16) {
-    throw new Error('Распакованный файл .dem пуст или повреждён.');
+    throw new Error('Ð Ð°ÑÐ¿Ð°ÐºÐ¾Ð²Ð°Ð½Ð½ÑÐ¹ ÑÐ°Ð¹Ð» .dem Ð¿ÑÑÑ Ð¸Ð»Ð¸ Ð¿Ð¾Ð²ÑÐµÐ¶Ð´ÑÐ½.');
   }
 
   const isSource2Demo = await hasMagicBytes(demPath, CS2_DEMO_MAGIC);
   if (!isSource2Demo) {
-    throw new Error('Файл не содержит корректного заголовка CS2 Source 2 (PBDEMS2).');
+    throw new Error('Ð¤Ð°Ð¹Ð» Ð½Ðµ ÑÐ¾Ð´ÐµÑÐ¶Ð¸Ñ ÐºÐ¾ÑÑÐµÐºÑÐ½Ð¾Ð³Ð¾ Ð·Ð°Ð³Ð¾Ð»Ð¾Ð²ÐºÐ° CS2 Source 2 (PBDEMS2).');
   }
 
   logInfo('demoparser2', `Parsing demo header and player_death events for "${playerNick}"`, {
@@ -460,7 +546,7 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
 
   const deathEvents = parseEvent(demPath, 'player_death', ['total_rounds_played', 'game_time', 'round_time']);
   if (!Array.isArray(deathEvents)) {
-    throw new Error('Парсер @laihoe/demoparser2 вернул некорректный формат событий player_death.');
+    throw new Error('ÐÐ°ÑÑÐµÑ @laihoe/demoparser2 Ð²ÐµÑÐ½ÑÐ» Ð½ÐµÐºÐ¾ÑÑÐµÐºÑÐ½ÑÐ¹ ÑÐ¾ÑÐ¼Ð°Ñ ÑÐ¾Ð±ÑÑÐ¸Ð¹ player_death.');
   }
 
   const targetNick = normalizeNick(playerNick);
@@ -513,7 +599,6 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
   return matchedKills;
 };
 
-// Фоновая обработка задания после отправки HTTP 202 с jobId
 const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalName, fileSize, playerNick }) => {
   const filesToCleanup = [uploadedPath];
   const isZst = originalName.toLowerCase().endsWith('.dem.zst');
@@ -525,7 +610,7 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
       updateJob(jobId, {
         status: 'decompressing',
         stage: 'decompressing',
-        progressMessage: 'Распаковка архива .dem.zst...'
+        progressMessage: 'Ð Ð°ÑÐ¿Ð°ÐºÐ¾Ð²ÐºÐ° Ð°ÑÑÐ¸Ð²Ð° .dem.zst...'
       });
 
       logInfo('decompress-start', `Starting .dem.zst decompression for "${originalName}" (${fileSize} bytes)`, {
@@ -537,7 +622,7 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
 
       const validZst = await hasMagicBytes(uploadedPath, ZSTD_MAGIC);
       if (!validZst) {
-        throw new Error('Файл имеет расширение .dem.zst, но не содержит валидный заголовок Zstandard.');
+        throw new Error('Ð¤Ð°Ð¹Ð» Ð¸Ð¼ÐµÐµÑ ÑÐ°ÑÑÐ¸ÑÐµÐ½Ð¸Ðµ .dem.zst, Ð½Ð¾ Ð½Ðµ ÑÐ¾Ð´ÐµÑÐ¶Ð¸Ñ Ð²Ð°Ð»Ð¸Ð´Ð½ÑÐ¹ Ð·Ð°Ð³Ð¾Ð»Ð¾Ð²Ð¾Ðº Zstandard.');
       }
 
       const unpackedDemPath = path.join(
@@ -568,7 +653,7 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
     updateJob(jobId, {
       status: 'parsing',
       stage: 'parsing',
-      progressMessage: 'Анализ событий демозаписи через @laihoe/demoparser2...'
+      progressMessage: 'ÐÐ½Ð°Ð»Ð¸Ð· ÑÐ¾Ð±ÑÑÐ¸Ð¹ Ð´ÐµÐ¼Ð¾Ð·Ð°Ð¿Ð¸ÑÐ¸ ÑÐµÑÐµÐ· @laihoe/demoparser2...'
     });
 
     logInfo('parse-start', `Starting @laihoe/demoparser2 analysis for playerNick="${playerNick}"`, {
@@ -600,7 +685,7 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
     updateJob(jobId, {
       status: 'completed',
       stage: 'completed',
-      progressMessage: 'Обработка демозаписи завершена.',
+      progressMessage: 'ÐÐ±ÑÐ°Ð±Ð¾ÑÐºÐ° Ð´ÐµÐ¼Ð¾Ð·Ð°Ð¿Ð¸ÑÐ¸ Ð·Ð°Ð²ÐµÑÑÐµÐ½Ð°.',
       decompressedZst: isZst,
       replayPrepared: kills.length > 0,
       kills,
@@ -619,8 +704,8 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
     updateJob(jobId, {
       status: 'failed',
       stage: 'failed',
-      progressMessage: 'Ошибка при обработке файла демозаписи.',
-      error: err?.message || 'Ошибка при обработке файла демозаписи на сервере.'
+      progressMessage: 'ÐÑÐ¸Ð±ÐºÐ° Ð¿ÑÐ¸ Ð¾Ð±ÑÐ°Ð±Ð¾ÑÐºÐµ ÑÐ°Ð¹Ð»Ð° Ð´ÐµÐ¼Ð¾Ð·Ð°Ð¿Ð¸ÑÐ¸.',
+      error: err?.message || 'ÐÑÐ¸Ð±ÐºÐ° Ð¿ÑÐ¸ Ð¾Ð±ÑÐ°Ð±Ð¾ÑÐºÐµ ÑÐ°Ð¹Ð»Ð° Ð´ÐµÐ¼Ð¾Ð·Ð°Ð¿Ð¸ÑÐ¸ Ð½Ð° ÑÐµÑÐ²ÐµÑÐµ.'
     });
   } finally {
     await cleanupFiles(filesToCleanup, jobId);
@@ -631,7 +716,7 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true, service: 'cs2-kill-editor-server', time: ts() });
 });
 
-// Приём файла и постановка фонового задания -> возвращает jobId
+// ÐÐ°Ð²ÐµÑÑÐ°ÐµÐ¼ HTTP-Ð¾ÑÐ²ÐµÑ Ð´Ð¾ Ð·Ð°Ð¿ÑÑÐºÐ° ÑÑÐ¶ÑÐ»Ð¾Ð¹ ÑÐ¾Ð½Ð¾Ð²Ð¾Ð¹ Ð·Ð°Ð´Ð°ÑÐ¸, ÑÑÐ¾Ð±Ñ ÑÐ¾ÐºÐµÑ Ð¸ Ð·Ð°Ð¿ÑÐ¾Ñ Ð¾ÑÐ²Ð¾Ð±Ð¾Ð¶Ð´Ð°Ð»Ð¸ÑÑ ÑÑÐ°Ð·Ñ
 const handleStartAnalyzeJob = async (req, res) => {
   const uploadedFile = req.file;
   const playerNick = typeof req.body?.playerNick === 'string' ? req.body.playerNick.trim() : '';
@@ -639,7 +724,7 @@ const handleStartAnalyzeJob = async (req, res) => {
   if (!uploadedFile) {
     logError('validation', new Error('Missing multipart file "demo"'), { reqId: req.reqId });
     return res.status(400).json({
-      message: 'Не получен файл в поле multipart "demo".'
+      message: 'ÐÐµ Ð¿Ð¾Ð»ÑÑÐµÐ½ ÑÐ°Ð¹Ð» Ð² Ð¿Ð¾Ð»Ðµ multipart "demo".'
     });
   }
 
@@ -647,7 +732,7 @@ const handleStartAnalyzeJob = async (req, res) => {
     await cleanupFiles([uploadedFile.path], req.reqId);
     logError('validation', new Error('Missing required field "playerNick"'), { reqId: req.reqId });
     return res.status(400).json({
-      message: 'Не указан обязательный параметр "playerNick".'
+      message: 'ÐÐµ ÑÐºÐ°Ð·Ð°Ð½ Ð¾Ð±ÑÐ·Ð°ÑÐµÐ»ÑÐ½ÑÐ¹ Ð¿Ð°ÑÐ°Ð¼ÐµÑÑ "playerNick".'
     });
   }
 
@@ -671,25 +756,26 @@ const handleStartAnalyzeJob = async (req, res) => {
     fileSize: uploadedFile.size
   });
 
-  // Запускаем обработку асинхронно в следующем тике event loop после ответа HTTP
-  setImmediate(() => {
-    runDemoJobInBackground({
-      jobId,
-      userId: req.supabaseUser.id,
-      uploadedPath: uploadedFile.path,
-      originalName,
-      fileSize: uploadedFile.size,
-      playerNick
-    });
-  });
-
-  return res.status(202).json({
+  res.status(202).json({
     ok: true,
     jobId,
     status: 'queued',
     playerNick,
     fileName: originalName,
     statusUrl: `/api/v1/demos/status/${jobId}`
+  });
+
+  res.once('finish', () => {
+    setImmediate(() => {
+      runDemoJobInBackground({
+        jobId,
+        userId: req.supabaseUser.id,
+        uploadedPath: uploadedFile.path,
+        originalName,
+        fileSize: uploadedFile.size,
+        playerNick
+      });
+    });
   });
 };
 
@@ -717,16 +803,16 @@ app.post(
         if (err instanceof multer.MulterError) {
           if (err.code === 'LIMIT_FILE_SIZE') {
             return res.status(413).json({
-              message: `Размер файла превышает допустимый лимит (${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ).`
+              message: `Ð Ð°Ð·Ð¼ÐµÑ ÑÐ°Ð¹Ð»Ð° Ð¿ÑÐµÐ²ÑÑÐ°ÐµÑ Ð´Ð¾Ð¿ÑÑÑÐ¸Ð¼ÑÐ¹ Ð»Ð¸Ð¼Ð¸Ñ (${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} ÐÐ).`
             });
           }
           return res.status(400).json({
-            message: `Ошибка загрузки файла (${err.code}): ${err.message}`
+            message: `ÐÑÐ¸Ð±ÐºÐ° Ð·Ð°Ð³ÑÑÐ·ÐºÐ¸ ÑÐ°Ð¹Ð»Ð° (${err.code}): ${err.message}`
           });
         }
 
         return res.status(err.statusCode || 400).json({
-          message: err.message || 'Некорректный multipart/form-data запрос.'
+          message: err.message || 'ÐÐµÐºÐ¾ÑÑÐµÐºÑÐ½ÑÐ¹ multipart/form-data Ð·Ð°Ð¿ÑÐ¾Ñ.'
         });
       }
 
@@ -750,7 +836,6 @@ app.post(
   handleStartAnalyzeJob
 );
 
-// Получение статуса задания и результата
 app.get('/api/v1/demos/status/:jobId', requireSupabaseAuth, (req, res) => {
   const { jobId } = req.params;
   const job = jobs.get(jobId);
@@ -765,7 +850,7 @@ app.get('/api/v1/demos/status/:jobId', requireSupabaseAuth, (req, res) => {
       ok: false,
       jobId,
       status: 'not_found',
-      message: 'Задание не найдено. Возможно, оно истекло или сервер Render перезапускался.'
+      message: 'ÐÐ°Ð´Ð°Ð½Ð¸Ðµ Ð½Ðµ Ð½Ð°Ð¹Ð´ÐµÐ½Ð¾. ÐÐ¾Ð·Ð¼Ð¾Ð¶Ð½Ð¾, Ð¾Ð½Ð¾ Ð¸ÑÑÐµÐºÐ»Ð¾ Ð¸Ð»Ð¸ ÑÐµÑÐ²ÐµÑ Render Ð¿ÐµÑÐµÐ·Ð°Ð¿ÑÑÐºÐ°Ð»ÑÑ.'
     });
   }
 
@@ -778,7 +863,7 @@ app.get('/api/v1/demos/status/:jobId', requireSupabaseAuth, (req, res) => {
     });
     return res.status(403).json({
       ok: false,
-      message: 'Доступ к этому заданию запрещён.'
+      message: 'ÐÐ¾ÑÑÑÐ¿ Ðº ÑÑÐ¾Ð¼Ñ Ð·Ð°Ð´Ð°Ð½Ð¸Ñ Ð·Ð°Ð¿ÑÐµÑÑÐ½.'
     });
   }
 
@@ -832,7 +917,7 @@ app.use((err, req, res, _next) => {
   logError('unhandled-express', err, { reqId: req?.reqId });
   const status = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
   res.status(status).json({
-    message: err?.message || 'Внутренняя ошибка сервера.'
+    message: err?.message || 'ÐÐ½ÑÑÑÐµÐ½Ð½ÑÑ Ð¾ÑÐ¸Ð±ÐºÐ° ÑÐµÑÐ²ÐµÑÐ°.'
   });
 });
 
