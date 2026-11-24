@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CS2 Kill Editor — личный кабинет, разбор .dem файлов, трекер матчей FACEIT и будущий редактор хайлайтов CS2.">
+  <meta name="description" content="CS2 Kill Editor — личный кабинет, разбор .dem и .dem.zst файлов, трекер матчей FACEIT и будущий редактор хайлайтов CS2.">
   <title>CS2 Kill Editor</title>
   <style>
     :root {
@@ -434,6 +434,16 @@
       border-radius: 999px;
     }
 
+    .badge-zst {
+      background: var(--amber-soft);
+      color: var(--amber);
+      border: 1px solid rgba(255, 209, 102, 0.4);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
     .badge-err {
       background: var(--red-soft);
       color: var(--red);
@@ -442,6 +452,38 @@
       font-weight: 700;
       padding: 2px 8px;
       border-radius: 999px;
+    }
+
+    .mode-switch-row {
+      margin-top: 14px;
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .mode-switch-label {
+      font-size: 13px;
+      color: #dce3ed;
+      font-weight: 600;
+    }
+
+    .mode-switch-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .mode-select {
+      width: auto;
+      min-width: 260px;
+      padding: 9px 12px;
+      font-size: 14px;
     }
 
     .demo-controls {
@@ -458,6 +500,37 @@
 
     .demo-controls button {
       min-width: 170px;
+    }
+
+    /* Прогресс-бар распаковки / передачи */
+    .progress-wrap {
+      margin-top: 12px;
+    }
+
+    .progress-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: #090d14;
+      border: 1px solid #263246;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--lime);
+      transition: width 0.2s ease;
     }
 
     /* Индикатор состояния обработки */
@@ -518,7 +591,7 @@
 
     .pipeline-steps {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 8px;
       margin-top: 12px;
     }
@@ -528,7 +601,7 @@
       border: 1px solid #263246;
       border-radius: 9px;
       padding: 9px 10px;
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--muted);
     }
 
@@ -836,12 +909,14 @@
       font-size: 12px;
     }
 
+    @media (max-width: 1024px) {
+      .pipeline-steps {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
     @media (max-width: 960px) {
       .tabs {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      .pipeline-steps {
         grid-template-columns: repeat(2, 1fr);
       }
 
@@ -869,7 +944,8 @@
       }
 
       .demo-controls button,
-      .form-row button {
+      .form-row button,
+      .mode-select {
         width: 100%;
       }
 
@@ -907,7 +983,7 @@
     <div class="hero">
       <div class="eyebrow">Counter-Strike 2 · Personal workspace</div>
       <h1>Your match.<br><span style="color:var(--lime)">Your highlights.</span></h1>
-      <p>Личный кабинет для загрузки локальных CS2 <code>.dem</code> файлов, учёта матчей FACEIT и подготовки хайлайтов. Серверный разбор демо и экспорт MP4 подключаются через выделенный обработчик.</p>
+      <p>Личный кабинет для загрузки демозаписей CS2 (<code>.dem</code> и сжатых архивов FACEIT <code>.dem.zst</code>), учёта матчей и подготовки хайлайтов.</p>
     </div>
 
     <section id="authArea" class="grid">
@@ -963,7 +1039,7 @@
       <nav class="tabs" aria-label="Разделы личного кабинета">
         <button id="tabDemo" class="tab-btn active" type="button" data-tab="demo">
           <span class="tab-title">🎮 Demo Editor</span>
-          <span class="tab-meta">Загрузка .dem и поиск убийств</span>
+          <span class="tab-meta">Загрузка .dem / .dem.zst и поиск киллов</span>
         </button>
         <button id="tabAnalyzer" class="tab-btn" type="button" data-tab="analyzer">
           <span class="tab-title">🎯 FACEIT Match Analyzer</span>
@@ -982,10 +1058,10 @@
       <!-- 1. Demo Editor -->
       <div id="viewDemo" class="section-box">
         <h3>Demo Editor</h3>
-        <p class="sub">Загрузи свой файл записи матча CS2 (<code>.dem</code>) и укажи игровой ник для передачи на сервер разбора демо.</p>
+        <p class="sub">Загрузи запись матча CS2 (<code>.dem</code>) или сжатый архив FACEIT (<code>.dem.zst</code>) и укажи свой игровой ник.</p>
 
         <div class="notice">
-          <strong>Архитектура обработки:</strong> файл <code>.dem</code> не сохраняется в браузере (<code>localStorage</code>) и передаётся напрямую на выделенный сервер парсинга CS2 демо (например, на базе <code>demoparser2</code> / <code>awpy</code>). Если серверный обработчик ещё не подключён, система честно сообщит об этом без имитации результатов.
+          <strong>Как обрабатываются <code>.dem.zst</code>:</strong> архивы FACEIT сжаты алгоритмом Zstandard. Файлы не сохраняются в <code>localStorage</code>. В основном режиме <code>.dem.zst</code> передаётся на сервер, где распаковывается в <code>.dem</code>, проверяется по заголовку Source 2 (<code>PBDEMS2</code>) и передаётся парсеру CS2 demo. Для небольших архивов (до 95 МБ) также доступна локальная проверка/распаковка через Zstandard Web Worker без блокировки интерфейса.
         </div>
 
         <form id="demoForm" novalidate>
@@ -993,12 +1069,12 @@
             <input
               id="demoFileInput"
               type="file"
-              accept=".dem,application/octet-stream"
-              aria-label="Выбрать файл CS2 .dem"
+              accept=".dem,.zst,.dem.zst,application/zstd,application/octet-stream"
+              aria-label="Выбрать файл CS2 .dem или .dem.zst"
             >
-            <div class="dropzone-icon">📁</div>
-            <div class="dropzone-title">Нажмите для выбора файла .dem или перетащите его сюда</div>
-            <div class="dropzone-hint">Поддерживается только формат CS2 Demo (.dem) · Максимальный размер: 800 МБ</div>
+            <div class="dropzone-icon">📦</div>
+            <div class="dropzone-title">Нажмите для выбора .dem или .dem.zst (или перетащите файл сюда)</div>
+            <div class="dropzone-hint">Поддерживаются: CS2 Demo (.dem) и FACEIT Zstandard (.dem.zst) · Макс. размер: 800 МБ</div>
           </div>
 
           <div id="fileInfoCard" class="file-info-card hidden">
@@ -1007,10 +1083,26 @@
               <div class="file-details">
                 <span id="selectedFileSize"></span>
                 <span>·</span>
-                <span id="selectedFileBadge" class="badge-ok">Формат .dem подтверждён</span>
+                <span id="selectedFileTypeLabel"></span>
+                <span>·</span>
+                <span id="selectedFileBadge" class="badge-ok">Формат подтверждён</span>
               </div>
             </div>
-            <button id="clearFileBtn" class="danger" type="button">Убрать файл</button>
+            <div class="actions" style="margin-top:0">
+              <button id="localUnpackBtn" class="secondary hidden" type="button">Проверить / распаковать .zst локально</button>
+              <button id="clearFileBtn" class="danger" type="button">Убрать файл</button>
+            </div>
+          </div>
+
+          <div id="zstModeRow" class="mode-switch-row hidden">
+            <div>
+              <div class="mode-switch-label">Режим обработки архива .dem.zst</div>
+              <div class="mode-switch-sub">Рекомендуется серверная распаковка (безопасно для памяти iPhone и больших матчей FACEIT)</div>
+            </div>
+            <select id="zstHandlingMode" class="mode-select" aria-label="Режим обработки .dem.zst">
+              <option value="server">Отправить .dem.zst на сервер (рекомендуется)</option>
+              <option value="worker">Распаковать Zstandard в браузере (Web Worker, до 95 МБ)</option>
+            </select>
           </div>
 
           <div class="demo-controls">
@@ -1035,31 +1127,45 @@
           <div class="status-header">
             <div class="status-indicator">
               <span id="statusDot" class="dot-pulse"></span>
-              <span id="statusText">Ожидание выбора .dem файла и ника</span>
+              <span id="statusText">Ожидание выбора .dem или .dem.zst файла и ника</span>
             </div>
             <span id="serverStatusChip" class="endpoint-chip">Сервер парсинга: не подключён</span>
           </div>
 
+          <div id="progressWrap" class="progress-wrap hidden">
+            <div class="progress-top">
+              <span id="progressLabel">Подготовка…</span>
+              <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="progressFill" class="progress-fill"></div>
+            </div>
+          </div>
+
           <div class="pipeline-steps" aria-label="Этапы конвейера обработки">
             <div id="stepValidate" class="pipe-step">
-              <strong>1. Валидация</strong>
-              Проверка .dem и лимита
+              <strong>1. Проверка файла</strong>
+              Формат .dem / .dem.zst
             </div>
             <div id="stepUpload" class="pipe-step">
               <strong>2. Передача</strong>
               Отправка на сервер
             </div>
+            <div id="stepDecompress" class="pipe-step">
+              <strong>3. Zstd → .dem</strong>
+              Распаковка и проверка
+            </div>
             <div id="stepParse" class="pipe-step">
-              <strong>3. Парсинг демо</strong>
+              <strong>4. Парсинг CS2</strong>
               Поиск киллов и таймингов
             </div>
             <div id="stepReplay" class="pipe-step">
-              <strong>4. 3D-повторы</strong>
-              Подготовка данных сцены
+              <strong>5. 3D-повторы</strong>
+              Подготовка сцены
             </div>
             <div id="stepRender" class="pipe-step">
-              <strong>5. Экспорт MP4</strong>
-              Рендер итогового клипа
+              <strong>6. Экспорт MP4</strong>
+              Рендер итогового видео
             </div>
           </div>
         </div>
@@ -1073,7 +1179,7 @@
           <div id="demoResultsArea">
             <div class="empty-state">
               <strong>Данных анализа пока нет</strong>
-              <p>Выберите файл <code>.dem</code>, введите ник и нажмите <strong>Start Analysis</strong>. После подключения сервера здесь появятся найденные убийства, тики/тайминги раундов и кнопки подготовки 3D-повтора и экспорта MP4.</p>
+              <p>Выберите <code>.dem</code> или сжатый архив FACEIT <code>.dem.zst</code>, укажите игровой ник и нажмите <strong>Start Analysis</strong>. После подключения сервера здесь появятся найденные убийства, тики/тайминги раундов и подготовка 3D-повторов.</p>
             </div>
           </div>
         </div>
@@ -1085,7 +1191,7 @@
         <p class="sub">Сохраняй ссылки на матчи FACEIT и свой игровой никнейм в списке задач. Здесь ведётся только учёт матчей.</p>
 
         <div class="notice">
-          <strong>Важно:</strong> доступ к FACEIT Downloads API пока не подключён. Демо-файлы автоматически не скачиваются, убийства по демо не парсятся и анализ не выполняется. Для ручного разбора уже скачанного файла используйте вкладку <strong>Demo Editor</strong>.
+          <strong>Важно:</strong> доступ к FACEIT Downloads API пока не подключён. Демо-файлы автоматически не скачиваются, убийства по демо не парсятся и анализ не выполняется. Если вы уже скачали демо вручную в формате <code>.dem.zst</code> или <code>.dem</code>, загрузите его во вкладке <strong>Demo Editor</strong>.
         </div>
 
         <form id="matchForm" novalidate>
@@ -1213,7 +1319,7 @@
       </div>
 
       <div class="status-bar">
-        Аккаунт подключён. Серверный парсинг .dem файлов, генерация 3D-повторов и рендер MP4 находятся в стадии интеграции.
+        Аккаунт подключён. Поддержка загрузки .dem и .dem.zst активна; серверная распаковка Zstandard, парсинг CS2 demo и рендер MP4 подключаются через выделенный backend.
       </div>
       <div id="dashMsg" class="msg" role="status"></div>
     </section>
@@ -1230,15 +1336,20 @@
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_M-Dlo8GKZ4TV_NwcPW8XuQ_7AyVBP5n';
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-  // Конфигурация внешнего сервера обработки CS2 .dem файлов.
+  // Конфигурация внешнего сервера обработки CS2 .dem и .dem.zst файлов.
   // Укажите публичный HTTPS URL вашего backend-сервера (например, 'https://api.yourdomain.com'), когда он будет развёрнут.
   // Никогда не храните здесь секретные ключи API или Supabase service_role key.
   const DEMO_PROCESSOR_CONFIG = {
     apiBaseUrl: '',
     analyzePath: '/api/v1/demos/analyze',
-    maxFileSizeBytes: 800 * 1024 * 1024, // 800 МБ
-    requestTimeoutMs: 120000
+    maxCompressedSizeBytes: 800 * 1024 * 1024,   // 800 МБ для .dem.zst и .dem при отправке на сервер
+    maxBrowserWorkerZstBytes: 95 * 1024 * 1024, // 95 МБ лимит для безопасной распаковки в браузере (защита от OOM на iPhone)
+    requestTimeoutMs: 180000
   };
+
+  // Магические байты форматов Zstandard и CS2 Source 2 Demo
+  const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
+  const CS2_DEMO_MAGIC = [0x50, 0x42, 0x44, 0x45, 0x4d, 0x53, 0x32]; // "PBDEMS2"
 
   const $ = id => document.getElementById(id);
   const setMsg = (id, message, type = '') => {
@@ -1249,8 +1360,8 @@
   };
 
   let currentUser = null;
-  let selectedDemoFile = null;
-  let isAnalyzingDemo = false;
+  let selectedDemoMeta = null; // { file, kind: 'dem' | 'dem.zst', unpackedDemBlob: Blob | null, unpackedDemName: string | null }
+  let isBusy = false;
 
   // --- Утилиты форматирования ---
   const formatBytes = bytes => {
@@ -1275,9 +1386,21 @@
     }
   };
 
-  // --- DEMO EDITOR: проверка файла, состояния конвейера и отправка на сервер ---
+  const setProgress = (visible, percent = 0, label = '') => {
+    const wrap = $('progressWrap');
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !visible);
+    if (visible) {
+      const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+      $('progressFill').style.width = `${clamped}%`;
+      $('progressPercent').textContent = `${clamped}%`;
+      if (label) $('progressLabel').textContent = label;
+    }
+  };
+
+  // --- DEMO EDITOR: проверка формата, сигнатуры файла и Zstandard Web Worker ---
   const resetPipelineSteps = () => {
-    ['stepValidate', 'stepUpload', 'stepParse', 'stepReplay', 'stepRender'].forEach(id => {
+    ['stepValidate', 'stepUpload', 'stepDecompress', 'stepParse', 'stepReplay', 'stepRender'].forEach(id => {
       const el = $(id);
       if (el) el.className = 'pipe-step';
     });
@@ -1308,73 +1431,281 @@
     }
   };
 
-  const validateDemoFile = file => {
+  const readHeaderBytes = async (fileOrBlob, length = 16) => {
+    const slice = fileOrBlob.slice(0, length);
+    const buffer = await slice.arrayBuffer();
+    return new Uint8Array(buffer);
+  };
+
+  const matchesMagic = (bytes, magic) => {
+    if (!bytes || bytes.length < magic.length) return false;
+    for (let i = 0; i < magic.length; i++) {
+      if (bytes[i] !== magic[i]) return false;
+    }
+    return true;
+  };
+
+  const detectDemoKindByName = fileName => {
+    const lower = fileName.trim().toLowerCase();
+    if (lower.endsWith('.dem.zst')) return 'dem.zst';
+    if (lower.endsWith('.dem')) return 'dem';
+    return null;
+  };
+
+  const validateDemoFile = async file => {
     if (!file) {
-      return { valid: false, error: 'Выберите файл формата .dem для анализа.' };
+      return { valid: false, error: 'Выберите файл формата .dem или .dem.zst для анализа.' };
     }
 
     const fileName = file.name.trim();
-    const lowerName = fileName.toLowerCase();
+    const kind = detectDemoKindByName(fileName);
 
-    if (!lowerName.endsWith('.dem')) {
+    if (!kind) {
       return {
         valid: false,
-        error: `Неподдерживаемый формат файла («${fileName}»). Требуется файл CS2 demo с расширением .dem.`
+        error: `Неподдерживаемый формат («${fileName}»). Разрешены только файлы CS2 Demo (.dem) и сжатые демо FACEIT (.dem.zst).`
       };
     }
 
     if (file.size === 0) {
       return {
         valid: false,
-        error: 'Выбранный файл пуст (0 Б). Проверьте целостность .dem файла.'
+        error: 'Выбранный файл пуст (0 Б). Проверьте целостность файла.'
       };
     }
 
-    if (file.size > DEMO_PROCESSOR_CONFIG.maxFileSizeBytes) {
+    if (file.size > DEMO_PROCESSOR_CONFIG.maxCompressedSizeBytes) {
       return {
         valid: false,
-        error: `Файл слишком большой (${formatBytes(file.size)}). Максимально допустимый размер — ${formatBytes(DEMO_PROCESSOR_CONFIG.maxFileSizeBytes)}.`
+        error: `Файл слишком большой (${formatBytes(file.size)}). Максимальный размер — ${formatBytes(DEMO_PROCESSOR_CONFIG.maxCompressedSizeBytes)}.`
       };
     }
 
-    return { valid: true };
+    // Проверка магических байтов заголовка, чтобы отсечь переименованные файлы без реального содержимого
+    try {
+      const header = await readHeaderBytes(file, 16);
+      if (kind === 'dem.zst' && !matchesMagic(header, ZSTD_MAGIC)) {
+        return {
+          valid: false,
+          error: 'Файл имеет расширение .dem.zst, но не содержит заголовок Zstandard (возможно, архив повреждён или это не Zstd).'
+        };
+      }
+      if (kind === 'dem' && !matchesMagic(header, CS2_DEMO_MAGIC)) {
+        return {
+          valid: false,
+          error: 'Файл не является корректной демозаписью CS2 Source 2 (отсутствует сигнатура PBDEMS2). Если это архив FACEIT, он должен иметь расширение .dem.zst и проходить распаковку.'
+        };
+      }
+    } catch {
+      return {
+        valid: false,
+        error: 'Не удалось прочитать заголовок файла. Проверьте права доступа к файлу на устройстве.'
+      };
+    }
+
+    return { valid: true, kind };
   };
 
-  const handleSelectedDemoFile = file => {
+  // Асинхронная распаковка Zstandard в отдельном Web Worker (не блокирует UI)
+  const decompressZstInWorker = (file, onProgress) => {
+    return new Promise((resolve, reject) => {
+      if (file.size > DEMO_PROCESSOR_CONFIG.maxBrowserWorkerZstBytes) {
+        reject(new Error(
+          `Файл слишком велик для распаковки в памяти браузера (${formatBytes(file.size)} > ${formatBytes(DEMO_PROCESSOR_CONFIG.maxBrowserWorkerZstBytes)}). Выберите режим «Отправить .dem.zst на сервер».`
+        ));
+        return;
+      }
+
+      const workerCode = `
+        self.onmessage = async (event) => {
+          const { file } = event.data;
+          try {
+            self.postMessage({ type: 'progress', percent: 10, label: 'Загрузка Zstandard-модуля…' });
+            const fzstd = await import('https://cdn.jsdelivr.net/npm/fzstd@0.1.1/esm/index.mjs');
+
+            self.postMessage({ type: 'progress', percent: 25, label: 'Чтение сжатого .dem.zst в буфер…' });
+            const compressedBuffer = await file.arrayBuffer();
+            const compressedBytes = new Uint8Array(compressedBuffer);
+
+            self.postMessage({ type: 'progress', percent: 50, label: 'Распаковка Zstandard потока…' });
+            const decompressedBytes = fzstd.decompress(compressedBytes);
+
+            if (!decompressedBytes || decompressedBytes.length < 16) {
+              throw new Error('Распакованный поток пуст или повреждён.');
+            }
+
+            // Проверка сигнатуры PBDEMS2 внутри распакованного .dem
+            const magic = [0x50, 0x42, 0x44, 0x45, 0x4d, 0x53, 0x32];
+            for (let i = 0; i < magic.length; i++) {
+              if (decompressedBytes[i] !== magic[i]) {
+                throw new Error('Архив распакован, но внутри не обнаружена валидная демозапись CS2 (нет заголовка PBDEMS2).');
+              }
+            }
+
+            self.postMessage({ type: 'progress', percent: 95, label: 'Формирование .dem файла…' });
+            self.postMessage({
+              type: 'done',
+              buffer: decompressedBytes.buffer,
+              unpackedSize: decompressedBytes.byteLength
+            }, [decompressedBytes.buffer]);
+          } catch (err) {
+            const msg = (err && err.name === 'RangeError')
+              ? 'Недостаточно оперативной памяти устройства для распаковки этого .dem.zst в браузере. Используйте серверную распаковку.'
+              : (err && err.message ? err.message : 'Ошибка распаковки повреждённого Zstandard-архива.');
+            self.postMessage({ type: 'error', message: msg });
+          }
+        };
+      `;
+
+      const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+      const workerUrl = URL.createObjectURL(workerBlob);
+      const worker = new Worker(workerUrl, { type: 'module' });
+
+      const cleanup = () => {
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+      };
+
+      worker.onmessage = e => {
+        const msg = e.data;
+        if (msg.type === 'progress') {
+          if (typeof onProgress === 'function') onProgress(msg.percent, msg.label);
+        } else if (msg.type === 'done') {
+          cleanup();
+          const demBlob = new Blob([msg.buffer], { type: 'application/octet-stream' });
+          resolve({ blob: demBlob, unpackedSize: msg.unpackedSize });
+        } else if (msg.type === 'error') {
+          cleanup();
+          reject(new Error(msg.message));
+        }
+      };
+
+      worker.onerror = () => {
+        cleanup();
+        reject(new Error('Не удалось запустить фоновый поток распаковки Zstandard (проверьте интернет-соединение или используйте серверную распаковку).'));
+      };
+
+      worker.postMessage({ file });
+    });
+  };
+
+  const handleSelectedDemoFile = async file => {
     resetPipelineSteps();
+    setProgress(false);
     const card = $('fileInfoCard');
     const badge = $('selectedFileBadge');
+    const typeLabel = $('selectedFileTypeLabel');
+    const zstModeRow = $('zstModeRow');
+    const localUnpackBtn = $('localUnpackBtn');
 
     if (!file) {
-      selectedDemoFile = null;
+      selectedDemoMeta = null;
       card.classList.add('hidden');
-      setProcessingStatus('Ожидание выбора .dem файла и ника', '');
+      zstModeRow.classList.add('hidden');
+      localUnpackBtn.classList.add('hidden');
+      setProcessingStatus('Ожидание выбора .dem или .dem.zst файла и ника', '');
       setMsg('demoMsg', '');
       return;
     }
 
-    const check = validateDemoFile(file);
     $('selectedFileName').textContent = file.name;
     $('selectedFileSize').textContent = `Размер: ${formatBytes(file.size)}`;
+    typeLabel.textContent = 'Проверка заголовка…';
     card.classList.remove('hidden');
 
+    const check = await validateDemoFile(file);
+
     if (!check.valid) {
-      selectedDemoFile = null;
-      badge.textContent = 'Ошибка формата или размера';
+      selectedDemoMeta = null;
+      typeLabel.textContent = 'Неизвестный / некорректный тип';
+      badge.textContent = 'Ошибка проверки';
       badge.className = 'badge-err';
+      zstModeRow.classList.add('hidden');
+      localUnpackBtn.classList.add('hidden');
       setPipelineStepState('stepValidate', 'failed');
       setProcessingStatus('Файл не прошёл проверку', 'error');
       setMsg('demoMsg', check.error, 'error');
       return;
     }
 
-    selectedDemoFile = file;
-    badge.textContent = 'Формат .dem подтверждён';
-    badge.className = 'badge-ok';
-    setPipelineStepState('stepValidate', 'done');
-    setProcessingStatus('Файл проверен и готов к отправке на сервер', 'ready');
-    setMsg('demoMsg', 'Файл .dem проверен. Укажите игровой ник и нажмите Start Analysis.', 'ok');
+    selectedDemoMeta = {
+      file,
+      kind: check.kind,
+      unpackedDemBlob: null,
+      unpackedDemName: check.kind === 'dem.zst' ? file.name.replace(/\.zst$/i, '') : file.name
+    };
+
+    if (check.kind === 'dem.zst') {
+      typeLabel.textContent = 'Архив FACEIT Zstandard (.dem.zst)';
+      badge.textContent = 'Требуется распаковка Zstd';
+      badge.className = 'badge-zst';
+      zstModeRow.classList.remove('hidden');
+      localUnpackBtn.classList.remove('hidden');
+      setPipelineStepState('stepValidate', 'done');
+      setProcessingStatus('Архив .dem.zst проверен и готов к передаче на сервер', 'ready');
+      setMsg(
+        'demoMsg',
+        'Архив .dem.zst подтверждён. Выберите режим обработки, укажите игровой ник и нажмите Start Analysis.',
+        'ok'
+      );
+    } else {
+      typeLabel.textContent = 'CS2 Source 2 Demo (.dem)';
+      badge.textContent = 'Формат .dem подтверждён';
+      badge.className = 'badge-ok';
+      zstModeRow.classList.add('hidden');
+      localUnpackBtn.classList.add('hidden');
+      setPipelineStepState('stepValidate', 'done');
+      setProcessingStatus('Файл .dem проверен и готов к отправке на сервер', 'ready');
+      setMsg('demoMsg', 'Файл .dem проверен. Укажите игровой ник и нажмите Start Analysis.', 'ok');
+    }
   };
+
+  // Кнопка локальной проверки/распаковки .dem.zst через Web Worker (без отправки на сервер)
+  $('localUnpackBtn').addEventListener('click', async () => {
+    if (isBusy || !selectedDemoMeta || selectedDemoMeta.kind !== 'dem.zst') return;
+
+    isBusy = true;
+    $('startAnalysisBtn').disabled = true;
+    $('localUnpackBtn').disabled = true;
+    setPipelineStepState('stepDecompress', 'active');
+    setProcessingStatus('Распаковка Zstandard в фоновом потоке…', 'working');
+    setProgress(true, 5, 'Инициализация Zstandard…');
+    setMsg('demoMsg', 'Выполняем распаковку .dem.zst без блокировки интерфейса…');
+
+    try {
+      const { blob, unpackedSize } = await decompressZstInWorker(selectedDemoMeta.file, (pct, lbl) => {
+        setProgress(true, pct, lbl);
+      });
+
+      selectedDemoMeta.unpackedDemBlob = blob;
+      setProgress(true, 100, `Распаковано в ${selectedDemoMeta.unpackedDemName} (${formatBytes(unpackedSize)})`);
+      setPipelineStepState('stepDecompress', 'done');
+      $('selectedFileBadge').textContent = `Распакован в памяти (${formatBytes(unpackedSize)})`;
+      $('selectedFileBadge').className = 'badge-ok';
+
+      const hasServer = Boolean(DEMO_PROCESSOR_CONFIG.apiBaseUrl.trim());
+      if (hasServer) {
+        setProcessingStatus('Архив распакован и готов к отправке на сервер', 'ready');
+        setMsg('demoMsg', `Архив успешно распакован в ${selectedDemoMeta.unpackedDemName}. Нажмите Start Analysis для отправки на сервер.`, 'ok');
+      } else {
+        setProcessingStatus('Ожидает подключения сервера', 'error');
+        setMsg(
+          'demoMsg',
+          `Архив успешно распакован и проверен (${selectedDemoMeta.unpackedDemName}, ${formatBytes(unpackedSize)}), но сервер парсинга пока не подключён — ожидает подключения сервера.`,
+          'warn'
+        );
+      }
+    } catch (err) {
+      setProgress(false);
+      setPipelineStepState('stepDecompress', 'failed');
+      setProcessingStatus('Ошибка распаковки Zstandard', 'error');
+      setMsg('demoMsg', err.message || 'Не удалось распаковать .dem.zst.', 'error');
+    } finally {
+      isBusy = false;
+      $('startAnalysisBtn').disabled = false;
+      $('localUnpackBtn').disabled = false;
+    }
+  });
 
   const renderAnalysisResults = data => {
     const area = $('demoResultsArea');
@@ -1387,7 +1718,7 @@
     if (kills.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.innerHTML = '<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил разбор демо, но событий убийств для данного игрока не обнаружено.</p>';
+      empty.innerHTML = '<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил распаковку и разбор демо, но событий убийств для данного игрока не обнаружено.</p>';
       area.appendChild(empty);
       return;
     }
@@ -1415,6 +1746,50 @@
     });
 
     area.appendChild(list);
+  };
+
+  // Загрузка с отслеживанием реального прогресса через XMLHttpRequest
+  const uploadDemoWithProgress = ({ url, token, formData, timeoutMs, onUploadProgress }) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.timeout = timeoutMs;
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      }
+
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable && typeof onUploadProgress === 'function') {
+          const percent = (event.loaded / event.total) * 100;
+          onUploadProgress(percent, event.loaded, event.total);
+        }
+      };
+
+      xhr.onload = () => {
+        let payload = null;
+        try {
+          payload = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          payload = null;
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(payload || {});
+        } else {
+          reject(new Error(payload?.message || `Сервер обработки вернул ошибку (${xhr.status}).`));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Сетевая ошибка при передаче файла на сервер обработки.'));
+      };
+
+      xhr.ontimeout = () => {
+        reject(new Error('Превышено время ожидания ответа от сервера обработки демо.'));
+      };
+
+      xhr.send(formData);
+    });
   };
 
   const demoInput = $('demoFileInput');
@@ -1453,22 +1828,14 @@
 
   $('demoForm').addEventListener('submit', async e => {
     e.preventDefault();
-    if (isAnalyzingDemo) return;
+    if (isBusy) return;
 
     const nick = $('demoPlayerNick').value.trim();
 
-    if (!selectedDemoFile) {
+    if (!selectedDemoMeta) {
       setPipelineStepState('stepValidate', 'failed');
-      setProcessingStatus('Не выбран корректный .dem файл', 'error');
-      setMsg('demoMsg', 'Сначала выберите корректный файл CS2 с расширением .dem.', 'error');
-      return;
-    }
-
-    const fileCheck = validateDemoFile(selectedDemoFile);
-    if (!fileCheck.valid) {
-      setPipelineStepState('stepValidate', 'failed');
-      setProcessingStatus('Ошибка проверки файла', 'error');
-      setMsg('demoMsg', fileCheck.error, 'error');
+      setProcessingStatus('Не выбран корректный .dem или .dem.zst файл', 'error');
+      setMsg('demoMsg', 'Сначала выберите корректный файл CS2 (.dem или .dem.zst).', 'error');
       return;
     }
 
@@ -1483,79 +1850,101 @@
     if (!baseUrl) {
       setPipelineStepState('stepValidate', 'done');
       setPipelineStepState('stepUpload', 'failed');
-      setProcessingStatus('Сервер обработки демо не подключён', 'error');
+      setProcessingStatus('Ожидает подключения сервера', 'error');
       setMsg(
         'demoMsg',
-        'Сервер обработки .dem файлов ещё не подключён к фронтенду. Файл проверен локально, но отправка и парсинг не выполняются до подключения backend-сервера.',
+        'Ожидает подключения сервера: файл проверен, но внешний сервер распаковки Zstandard и парсинга CS2 demo ещё не подключён.',
         'warn'
       );
       return;
     }
 
-    isAnalyzingDemo = true;
+    isBusy = true;
     $('startAnalysisBtn').disabled = true;
+    $('localUnpackBtn').disabled = true;
     resetPipelineSteps();
     setPipelineStepState('stepValidate', 'done');
-    setPipelineStepState('stepUpload', 'active');
-    setProcessingStatus('Передача .dem файла на сервер обработки…', 'working');
-    setMsg('demoMsg', 'Загружаем файл на сервер парсинга. Не закрывайте страницу…');
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEMO_PROCESSOR_CONFIG.requestTimeoutMs);
 
     try {
+      let uploadBlob = selectedDemoMeta.file;
+      let uploadFileName = selectedDemoMeta.file.name;
+      let compressionType = selectedDemoMeta.kind === 'dem.zst' ? 'zstd' : 'none';
+
+      // Если пользователь выбрал распаковку в браузере через Web Worker для .dem.zst
+      if (selectedDemoMeta.kind === 'dem.zst' && $('zstHandlingMode').value === 'worker') {
+        if (selectedDemoMeta.unpackedDemBlob) {
+          uploadBlob = selectedDemoMeta.unpackedDemBlob;
+          uploadFileName = selectedDemoMeta.unpackedDemName;
+          compressionType = 'none';
+          setPipelineStepState('stepDecompress', 'done');
+        } else {
+          setPipelineStepState('stepDecompress', 'active');
+          setProcessingStatus('Распаковка .dem.zst в браузере (Web Worker)…', 'working');
+          setProgress(true, 5, 'Распаковка Zstandard перед отправкой…');
+          const { blob, unpackedSize } = await decompressZstInWorker(selectedDemoMeta.file, (pct, lbl) => {
+            setProgress(true, pct, lbl);
+          });
+          selectedDemoMeta.unpackedDemBlob = blob;
+          uploadBlob = blob;
+          uploadFileName = selectedDemoMeta.unpackedDemName;
+          compressionType = 'none';
+          setPipelineStepState('stepDecompress', 'done');
+          $('selectedFileBadge').textContent = `Распакован (${formatBytes(unpackedSize)})`;
+          $('selectedFileBadge').className = 'badge-ok';
+        }
+      }
+
+      setPipelineStepState('stepUpload', 'active');
+      setProcessingStatus('Передача файла на сервер обработки…', 'working');
+      setProgress(true, 0, 'Передача файла на сервер…');
+      setMsg('demoMsg', 'Передаём файл на сервер. Не закрывайте вкладку…');
+
       const { data: { session } } = await supabase.auth.getSession();
       const formData = new FormData();
-      formData.append('demo', selectedDemoFile, selectedDemoFile.name);
+      formData.append('demo', uploadBlob, uploadFileName);
       formData.append('playerNick', nick);
+      formData.append('compression', compressionType);
       if (currentUser?.id) {
         formData.append('userId', currentUser.id);
       }
 
-      const headers = {};
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-      }
-
-      const response = await fetch(`${baseUrl}${DEMO_PROCESSOR_CONFIG.analyzePath}`, {
-        method: 'POST',
-        headers,
-        body: formData,
-        signal: controller.signal
+      const result = await uploadDemoWithProgress({
+        url: `${baseUrl}${DEMO_PROCESSOR_CONFIG.analyzePath}`,
+        token: session?.access_token || '',
+        formData,
+        timeoutMs: DEMO_PROCESSOR_CONFIG.requestTimeoutMs,
+        onUploadProgress: (pct, loaded, total) => {
+          setProgress(true, pct, `Загрузка на сервер: ${formatBytes(loaded)} из ${formatBytes(total)}`);
+          if (pct >= 100) {
+            setPipelineStepState('stepUpload', 'done');
+            if (compressionType === 'zstd') {
+              setPipelineStepState('stepDecompress', 'active');
+              setProcessingStatus('Сервер распаковывает Zstandard и проверяет .dem…', 'working');
+            } else {
+              setPipelineStepState('stepParse', 'active');
+              setProcessingStatus('Сервер разбирает CS2 demo и ищет убийства…', 'working');
+            }
+          }
+        }
       });
 
+      setProgress(false);
       setPipelineStepState('stepUpload', 'done');
-      setPipelineStepState('stepParse', 'active');
-      setProcessingStatus('Парсинг CS2 demo и поиск убийств…', 'working');
-
-      if (!response.ok) {
-        let serverError = `Сервер вернул ошибку (${response.status}).`;
-        try {
-          const errPayload = await response.json();
-          if (errPayload?.message) serverError = errPayload.message;
-        } catch {
-          // Ответ не в JSON
-        }
-        throw new Error(serverError);
-      }
-
-      const result = await response.json();
+      setPipelineStepState('stepDecompress', 'done');
       setPipelineStepState('stepParse', 'done');
       setPipelineStepState('stepReplay', result?.replayPrepared ? 'done' : 'active');
-      setProcessingStatus('Анализ демо завершён сервером', 'ready');
-      setMsg('demoMsg', 'Разбор .dem выполнен. Получены события убийств и тайминги.', 'ok');
+      setProcessingStatus('Распаковка и анализ демо завершены сервером', 'ready');
+      setMsg('demoMsg', 'Готово: демозапись проверена и разобрана сервером.', 'ok');
       renderAnalysisResults(result);
     } catch (err) {
+      setProgress(false);
       setPipelineStepState('stepUpload', 'failed');
-      setProcessingStatus('Ошибка при обращении к серверу обработки', 'error');
-      const message = err?.name === 'AbortError'
-        ? 'Превышено время ожидания ответа от сервера обработки демо.'
-        : (err?.message || 'Не удалось соединиться с сервером обработки демо.');
-      setMsg('demoMsg', message, 'error');
+      setProcessingStatus('Ошибка при обработке файла', 'error');
+      setMsg('demoMsg', err?.message || 'Не удалось выполнить распаковку или анализ демо.', 'error');
     } finally {
-      clearTimeout(timeoutId);
-      isAnalyzingDemo = false;
+      isBusy = false;
       $('startAnalysisBtn').disabled = false;
+      $('localUnpackBtn').disabled = false;
     }
   });
 
