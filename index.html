@@ -1361,6 +1361,29 @@
   let currentUser = null;
   let selectedDemoMeta = null; // { file, kind: 'dem' | 'dem.zst', unpackedDemBlob: Blob | null, unpackedDemName: string | null }
   let isBusy = false;
+  let activeJobId = null;
+  let activeStatusUrl = null;
+  let activeJobGeneration = 0;
+  let activePollTimer = null;
+  let activePollAbortController = null;
+
+  const clearActiveJobPolling = ({ incrementGeneration = false } = {}) => {
+    if (incrementGeneration) {
+      activeJobGeneration += 1;
+    }
+    if (activePollTimer !== null) {
+      clearTimeout(activePollTimer);
+      activePollTimer = null;
+    }
+    if (activePollAbortController) {
+      try {
+        activePollAbortController.abort();
+      } catch {
+        // ignore abort errors
+      }
+      activePollAbortController = null;
+    }
+  };
 
   // --- Утилиты форматирования ---
   const formatBytes = bytes => {
@@ -1742,7 +1765,18 @@
     if (kills.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.innerHTML = '<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил обработку демо, но событий убийств для данного игрока в ответе не обнаружено.</p>';
+      const diag = data?.diagnostics && typeof data.diagnostics === 'object' ? data.diagnostics : null;
+      const diagText = diag
+        ? ` Всего событий player_death: ${diag.totalPlayerDeathEvents ?? 0}, с атакующим: ${diag.eventsWithAttacker ?? 0}.`
+        : '';
+      const players = Array.isArray(data?.detectedPlayers) ? data.detectedPlayers : [];
+      const playerNames = players
+        .map(p => (typeof p === 'string' ? p : (p?.name || p?.steamId || '')))
+        .filter(Boolean);
+      const playersText = playerNames.length > 0
+        ? ` Обнаруженные игроки в демо: ${playerNames.slice(0, 16).join(', ')}${playerNames.length > 16 ? '…' : ''}.`
+        : '';
+      empty.innerHTML = `<strong>Убийства для указанного ника не найдены</strong><p>Сервер завершил обработку демо, но событий убийств для данного игрока в ответе не обнаружено.${diagText}${playersText}</p>`;
       area.appendChild(empty);
       return;
     }
@@ -1887,8 +1921,15 @@
   });
 
   $('clearFileBtn').addEventListener('click', () => {
+    clearActiveJobPolling({ incrementGeneration: true });
+    activeJobId = null;
+    activeStatusUrl = null;
     demoInput.value = '';
     handleSelectedDemoFile(null);
+  });
+
+  window.addEventListener('pagehide', () => {
+    clearActiveJobPolling({ incrementGeneration: true });
   });
 
   $('demoForm').addEventListener('submit', async e => {
@@ -1981,43 +2022,213 @@
       setProgress(true, 0, 'Передача файла на сервер Render…');
       setMsg('demoMsg', 'Передаём файл на сервер Render (если сервер спал, первый ответ может занять до минуты). Не закрывайте вкладку…');
 
-      const result = await uploadDemoWithProgress({
+      clearActiveJobPolling({ incrementGeneration: true });
+      const jobGeneration = activeJobGeneration;
+
+      const acceptedPayload = await uploadDemoWithProgress({
         url: targetUrl,
         token: accessToken,
         formData,
         timeoutMs: DEMO_PROCESSOR_CONFIG.requestTimeoutMs,
         onUploadProgress: (pct, loaded, total) => {
+          if (jobGeneration !== activeJobGeneration) return;
           setProgress(true, pct, `Загрузка на сервер: ${formatBytes(loaded)} из ${formatBytes(total)}`);
           if (pct >= 100) {
             setPipelineStepState('stepUpload', 'done');
-            if (isZst && $('zstHandlingMode').value !== 'worker') {
-              setPipelineStepState('stepDecompress', 'active');
-              setProcessingStatus('Сервер распаковывает Zstandard и проверяет .dem…', 'working');
-            } else {
-              setPipelineStepState('stepParse', 'active');
-              setProcessingStatus('Сервер разбирает CS2 demo и ищет убийства…', 'working');
-            }
+            setProcessingStatus('Файл загружен, постановка задачи в очередь…', 'working');
           }
         }
       });
+
+      if (jobGeneration !== activeJobGeneration) return;
+
+      const receivedJobId = typeof acceptedPayload?.jobId === 'string' ? acceptedPayload.jobId.trim() : '';
+      const rawStatusUrl = typeof acceptedPayload?.statusUrl === 'string' ? acceptedPayload.statusUrl.trim() : '';
+
+      if (!receivedJobId && !rawStatusUrl) {
+        throw new Error('Сервер не вернул jobId или statusUrl для отслеживания фонового задания.');
+      }
+
+      activeJobId = receivedJobId || null;
+      activeStatusUrl = rawStatusUrl
+        ? (rawStatusUrl.startsWith('http://') || rawStatusUrl.startsWith('https://')
+          ? rawStatusUrl
+          : `${baseUrl}${rawStatusUrl.startsWith('/') ? '' : '/'}${rawStatusUrl}`)
+        : `${baseUrl}/api/v1/demos/status/${encodeURIComponent(receivedJobId)}`;
+
+      setProgress(false);
+      setPipelineStepState('stepUpload', 'done');
+      setProcessingStatus('Задача поставлена в очередь (queued)…', 'working');
+      setMsg('demoMsg', `Файл загружен. Задание ${activeJobId || ''} поставлено в очередь, ожидаем обработку…`, '');
+
+      const POLL_INTERVAL_MS = 2000;
+      const MAX_POLL_DURATION_MS = 10 * 60 * 1000;
+      const pollStartedAt = Date.now();
+      let consecutiveNetworkErrors = 0;
+      const MAX_CONSECUTIVE_NETWORK_ERRORS = 10;
+
+      const getFreshAuthToken = async () => {
+        const { data: { session: latestSession } } = await supabase.auth.getSession();
+        return latestSession?.access_token || accessToken;
+      };
+
+      const sleepWithGeneration = ms =>
+        new Promise((resolve, reject) => {
+          if (jobGeneration !== activeJobGeneration) {
+            reject(new Error('Задача отменена из-за запуска нового анализа.'));
+            return;
+          }
+          activePollTimer = setTimeout(() => {
+            activePollTimer = null;
+            if (jobGeneration !== activeJobGeneration) {
+              reject(new Error('Задача отменена из-за запуска нового анализа.'));
+            } else {
+              resolve();
+            }
+          }, ms);
+        });
+
+      const pollJobUntilDone = async () => {
+        while (true) {
+          if (jobGeneration !== activeJobGeneration) {
+            throw new Error('Задача отменена из-за запуска нового анализа.');
+          }
+
+          if (Date.now() - pollStartedAt > MAX_POLL_DURATION_MS) {
+            throw new Error('Превышено максимальное время ожидания обработки демо на сервере (10 минут).');
+          }
+
+          const currentToken = await getFreshAuthToken();
+          const controller = new AbortController();
+          activePollAbortController = controller;
+
+          let statusResponse;
+          let statusRawText = '';
+          let statusPayload = null;
+
+          try {
+            statusResponse = await fetch(activeStatusUrl, {
+              method: 'GET',
+              headers: currentToken ? { Authorization: `Bearer ${currentToken}` } : {},
+              signal: controller.signal,
+              cache: 'no-store'
+            });
+            statusRawText = await statusResponse.text();
+            try {
+              statusPayload = statusRawText ? JSON.parse(statusRawText) : null;
+            } catch {
+              statusPayload = null;
+            }
+            consecutiveNetworkErrors = 0;
+          } catch (netErr) {
+            if (controller.signal.aborted || jobGeneration !== activeJobGeneration) {
+              throw new Error('Задача отменена из-за запуска нового анализа.');
+            }
+            consecutiveNetworkErrors += 1;
+            const netMsg = `Временная сетевая ошибка при опросе статуса (${consecutiveNetworkErrors}/${MAX_CONSECUTIVE_NETWORK_ERRORS}): ${netErr?.message || 'ошибка соединения'}.`;
+            setProcessingStatus(netMsg, 'working');
+            setMsg('demoMsg', `${netMsg} Повторяем запрос…`, 'warn');
+            if (consecutiveNetworkErrors >= MAX_CONSECUTIVE_NETWORK_ERRORS) {
+              throw new Error(`Сетевая ошибка при проверке статуса задания на сервере: ${netErr?.message || 'не удалось получить ответ от сервера'}.`);
+            }
+            await sleepWithGeneration(POLL_INTERVAL_MS);
+            continue;
+          } finally {
+            if (activePollAbortController === controller) {
+              activePollAbortController = null;
+            }
+          }
+
+          if (!statusResponse.ok) {
+            const errMsg = parseErrorMessage(statusRawText, statusResponse.status);
+            const httpErr = new Error(errMsg);
+            httpErr.status = statusResponse.status;
+            throw httpErr;
+          }
+
+          if (statusRawText && statusPayload === null) {
+            throw new Error('Сервер вернул некорректный JSON при проверке статуса задания.');
+          }
+
+          const jobState = String(statusPayload?.status || statusPayload?.stage || '').trim().toLowerCase();
+          const serverProgressText = typeof statusPayload?.progressMessage === 'string' && statusPayload.progressMessage.trim()
+            ? statusPayload.progressMessage.trim()
+            : '';
+
+          if (jobState === 'completed') {
+            return statusPayload;
+          }
+
+          if (jobState === 'failed' || statusPayload?.ok === false) {
+            const serverErrMsg =
+              statusPayload?.error ||
+              statusPayload?.message ||
+              serverProgressText ||
+              'Сервер сообщил об ошибке при обработке демозаписи.';
+            const failedErr = new Error(String(serverErrMsg));
+            failedErr.jobFailed = true;
+            failedErr.payload = statusPayload;
+            throw failedErr;
+          }
+
+          if (jobState === 'decompressing') {
+            setPipelineStepState('stepUpload', 'done');
+            setPipelineStepState('stepDecompress', 'active');
+            setPipelineStepState('stepParse', '');
+            const label = serverProgressText || 'Распаковка архива .dem.zst на сервере…';
+            setProcessingStatus(label, 'working');
+            setMsg('demoMsg', label, '');
+          } else if (jobState === 'parsing') {
+            setPipelineStepState('stepUpload', 'done');
+            setPipelineStepState('stepDecompress', 'done');
+            setPipelineStepState('stepParse', 'active');
+            const label = serverProgressText || 'Поиск убийств игрока в демозаписи…';
+            setProcessingStatus(label, 'working');
+            setMsg('demoMsg', label, '');
+          } else {
+            // queued или промежуточное состояние
+            setPipelineStepState('stepUpload', 'done');
+            const label = serverProgressText || 'Задача в очереди, ожидает начала обработки…';
+            setProcessingStatus(label, 'working');
+            setMsg('demoMsg', label, '');
+          }
+
+          await sleepWithGeneration(POLL_INTERVAL_MS);
+        }
+      };
+
+      const completedResult = await pollJobUntilDone();
+
+      if (jobGeneration !== activeJobGeneration) return;
 
       setProgress(false);
       setPipelineStepState('stepUpload', 'done');
       setPipelineStepState('stepDecompress', 'done');
       setPipelineStepState('stepParse', 'done');
-      setPipelineStepState('stepReplay', result?.replayPrepared ? 'done' : 'active');
-      setProcessingStatus('Распаковка и анализ демо завершены сервером', 'ready');
-      setMsg('demoMsg', 'Готово: демозапись проверена и разобрана сервером Render.', 'ok');
-      renderAnalysisResults(result);
+      setPipelineStepState('stepReplay', completedResult?.replayPrepared ? 'done' : 'active');
+      setProcessingStatus(
+        completedResult?.progressMessage || 'Распаковка и анализ демо завершены сервером',
+        'ready'
+      );
+      setMsg('demoMsg', completedResult?.progressMessage || 'Готово: демозапись проверена и разобрана сервером Render.', 'ok');
+      renderAnalysisResults(completedResult);
     } catch (err) {
+      if (jobGeneration !== activeJobGeneration) return;
       setProgress(false);
-      setPipelineStepState('stepUpload', 'failed');
-      setProcessingStatus('Ошибка при обработке файла', 'error');
-      setMsg('demoMsg', err?.message || 'Не удалось выполнить распаковку или анализ демо.', 'error');
+      if (err?.jobFailed) {
+        setPipelineStepState('stepParse', 'failed');
+      } else {
+        setPipelineStepState('stepUpload', 'failed');
+      }
+      const errMessage = err?.message || 'Не удалось выполнить распаковку или анализ демо.';
+      setProcessingStatus(`Ошибка: ${errMessage}`, 'error');
+      setMsg('demoMsg', errMessage, 'error');
     } finally {
-      isBusy = false;
-      $('startAnalysisBtn').disabled = false;
-      $('localUnpackBtn').disabled = false;
+      if (jobGeneration === activeJobGeneration) {
+        isBusy = false;
+        $('startAnalysisBtn').disabled = false;
+        $('localUnpackBtn').disabled = false;
+      }
     }
   });
 
