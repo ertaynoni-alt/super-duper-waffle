@@ -256,6 +256,7 @@ const createJobRecord = ({ jobId, userId, playerNick, fileName, fileSize }) => {
     replayPrepared: false,
     kills: null,
     detectedPlayers: [],
+    diagnostics: null,
     error: null
   };
   jobs.set(jobId, record);
@@ -327,19 +328,23 @@ const upload = multer({
   }
 });
 
-const hasMagicBytes = async (filePath, magicBytes) => {
+const readMagicBytes = async (filePath, length) => {
   const handle = await fs.promises.open(filePath, 'r');
   try {
-    const buf = Buffer.alloc(magicBytes.length);
-    const { bytesRead } = await handle.read(buf, 0, magicBytes.length, 0);
-    if (bytesRead < magicBytes.length) return false;
-    for (let i = 0; i < magicBytes.length; i++) {
-      if (buf[i] !== magicBytes[i]) return false;
-    }
-    return true;
+    const buf = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buf, 0, length, 0);
+    return buf.subarray(0, bytesRead);
   } finally {
     await handle.close();
   }
+};
+
+const matchesMagicBytes = (buf, magicBytes) => {
+  if (!buf || buf.length < magicBytes.length) return false;
+  for (let i = 0; i < magicBytes.length; i++) {
+    if (buf[i] !== magicBytes[i]) return false;
+  }
+  return true;
 };
 
 const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
@@ -528,7 +533,7 @@ const normalizeSteamId = value => {
   return str;
 };
 
-// Извлекает SteamID (64-битный строковый идентификатор) и имя игрока из полей события или списка игроков демо
+// Извлекает SteamID и имя игрока из полей события или справочника игроков демо
 const extractActorIdentity = (ev, prefix, playerInfoBySteamId, playerInfoByName) => {
   const rawSteamId =
     ev?.[`${prefix}_steamid`] ??
@@ -563,31 +568,69 @@ const extractActorIdentity = (ev, prefix, playerInfoBySteamId, playerInfoByName)
   return { steamId, name };
 };
 
-const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
-  const stat = await fs.promises.stat(demPath);
-  if (!stat.isFile() || stat.size < 16) {
-    throw new Error('Распакованный файл .dem пуст или повреждён.');
+// Проверяет, что передан именно распакованный CS2 Source 2 (.dem) файл, а не .zst или повреждённый поток
+const assertValidSource2DemFile = async (demPath, reqId) => {
+  const resolvedPath = path.resolve(String(demPath || ''));
+  if (!resolvedPath || !resolvedPath.toLowerCase().endsWith('.dem')) {
+    throw new Error(`Некорректный путь к распакованному .dem файлу: "${demPath}".`);
   }
 
-  const isSource2Demo = await hasMagicBytes(demPath, CS2_DEMO_MAGIC);
-  if (!isSource2Demo) {
-    throw new Error('Файл не содержит корректного заголовка CS2 Source 2 (PBDEMS2).');
+  const stat = await fs.promises.stat(resolvedPath);
+  if (!stat.isFile() || stat.size < 16) {
+    throw new Error(`Распакованный файл .dem пуст или недоступен: "${resolvedPath}" (size=${stat?.size ?? 0}).`);
   }
+
+  const headBuf = await readMagicBytes(resolvedPath, 16);
+  const headHex = Buffer.from(headBuf).toString('hex');
+
+  if (matchesMagicBytes(headBuf, ZSTD_MAGIC)) {
+    throw new Error(
+      `Файл "${path.basename(resolvedPath)}" всё ещё содержит заголовок Zstandard (0x28b52ffd) вместо распакованного CS2 .dem.`
+    );
+  }
+
+  if (!matchesMagicBytes(headBuf, CS2_DEMO_MAGIC)) {
+    throw new Error(
+      `Файл "${path.basename(resolvedPath)}" не является корректным демо CS2 Source 2 (ожидался заголовок PBDEMS2, получено hex: ${headHex}).`
+    );
+  }
+
+  logInfo('demoparser2-file-verified', 'Verified unpacked CS2 Source 2 .dem file before parsing', {
+    reqId,
+    demPath: resolvedPath,
+    demSizeBytes: stat.size,
+    headerHex: headHex
+  });
+
+  return { resolvedPath, sizeBytes: stat.size };
+};
+
+const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
+  const { resolvedPath, sizeBytes } = await assertValidSource2DemFile(demPath, reqId);
 
   if (typeof parseHeader !== 'function' || typeof parseEvent !== 'function') {
     throw new Error('Несовместимый API @laihoe/demoparser2: отсутствуют parseHeader или parseEvent.');
   }
 
-  logInfo('demoparser2', `Parsing demo header, player info and player_death events`, {
+  let headerInfo = null;
+  try {
+    headerInfo = parseHeader(resolvedPath);
+  } catch (hdrErr) {
+    const wrapped = new Error(
+      `Ошибка чтения заголовка CS2 demo (parseHeader): ${hdrErr?.message || String(hdrErr)}`
+    );
+    wrapped.code = hdrErr?.code || 'DEMOPARSER_HEADER_ERROR';
+    wrapped.cause = hdrErr;
+    throw wrapped;
+  }
+
+  logInfo('demoparser2-header', 'Parsed CS2 demo header successfully', {
     reqId,
-    demPath,
-    demSizeBytes: stat.size,
-    query: playerNick
+    demPath: resolvedPath,
+    demSizeBytes: sizeBytes,
+    mapName: headerInfo?.map_name || headerInfo?.mapName || null
   });
 
-  parseHeader(demPath);
-
-  // Собираем справочник игроков через parsePlayerInfo (если поддерживается текущей версией пакета)
   const playerInfoBySteamId = new Map();
   const playerInfoByName = new Map();
   const playersMap = new Map();
@@ -623,7 +666,7 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
 
   if (typeof parsePlayerInfo === 'function') {
     try {
-      const infoList = parsePlayerInfo(demPath);
+      const infoList = parsePlayerInfo(resolvedPath);
       if (Array.isArray(infoList)) {
         for (const p of infoList) {
           if (!p || typeof p !== 'object') continue;
@@ -637,7 +680,20 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
     }
   }
 
-  const deathEvents = parseEvent(demPath, 'player_death', ['total_rounds_played', 'game_time', 'round_time']);
+  let deathEvents;
+  try {
+    // Передаём только распакованный .dem путь и запрашиваемые поля события player_death
+    deathEvents = parseEvent(resolvedPath, 'player_death', ['total_rounds_played', 'game_time', 'round_time']);
+  } catch (parseErr) {
+    // Пробрасываем ошибку парсинга (включая FailedByteRead / InvalidArg) без подмены на 0 убийств
+    const wrapped = new Error(
+      `Ошибка парсинга событий player_death в @laihoe/demoparser2: ${parseErr?.message || String(parseErr)}`
+    );
+    wrapped.code = parseErr?.code || 'InvalidArg';
+    wrapped.cause = parseErr;
+    throw wrapped;
+  }
+
   if (!Array.isArray(deathEvents)) {
     throw new Error('Парсер @laihoe/demoparser2 вернул некорректный формат событий player_death.');
   }
@@ -648,13 +704,11 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
   for (const ev of deathEvents) {
     if (!ev || typeof ev !== 'object') continue;
     const attacker = extractActorIdentity(ev, 'attacker', playerInfoBySteamId, playerInfoByName);
-    const victim = extractActorIdentity(ev, 'user', playerInfoBySteamId, playerInfoByName);
+    let victim = extractActorIdentity(ev, 'user', playerInfoBySteamId, playerInfoByName);
     if (!victim.steamId && !victim.name) {
-      const fallbackVictim = extractActorIdentity(ev, 'victim', playerInfoBySteamId, playerInfoByName);
-      registerPlayer(fallbackVictim.steamId, fallbackVictim.name);
-    } else {
-      registerPlayer(victim.steamId, victim.name);
+      victim = extractActorIdentity(ev, 'victim', playerInfoBySteamId, playerInfoByName);
     }
+    registerPlayer(victim.steamId, victim.name);
 
     if (attacker.steamId || attacker.name) {
       eventsWithAttacker += 1;
@@ -692,6 +746,12 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
       victim = extractActorIdentity(ev, 'victim', playerInfoBySteamId, playerInfoByName);
     }
 
+    const userIdVal =
+      ev.userid ??
+      ev.user_id ??
+      ev.userId ??
+      null;
+
     const weaponName =
       ev.weapon ??
       ev.weapon_name ??
@@ -708,6 +768,7 @@ const parseKillsFromDemFile = async (demPath, playerNick, reqId) => {
       weapon: String(weaponName || ''),
       victim: String(victim.name || ''),
       victimSteamId: victim.steamId || null,
+      userId: userIdVal !== null && userIdVal !== undefined ? String(userIdVal) : null,
       headshot: headshotBool,
       round: roundNumber,
       attacker: String(attacker.name || ''),
@@ -762,8 +823,8 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
         fileSize
       });
 
-      const validZst = await hasMagicBytes(uploadedPath, ZSTD_MAGIC);
-      if (!validZst) {
+      const headBuf = await readMagicBytes(uploadedPath, 16);
+      if (!matchesMagicBytes(headBuf, ZSTD_MAGIC)) {
         throw new Error('Файл имеет расширение .dem.zst, но не содержит валидный заголовок Zstandard.');
       }
 
@@ -802,7 +863,8 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
       reqId: jobId,
       userId,
       fileName: originalName,
-      playerNick
+      playerNick,
+      workingDemPath
     });
 
     const parseStart = Date.now();
@@ -854,13 +916,14 @@ const runDemoJobInBackground = async ({ jobId, userId, uploadedPath, originalNam
       fileName: originalName,
       fileSize,
       playerNick,
+      workingDemPath,
       elapsedMs: Date.now() - startedAt
     });
 
     updateJob(jobId, {
       status: 'failed',
       stage: 'failed',
-      progressMessage: 'Ошибка при обработке файла демозаписи.',
+      progressMessage: 'Ошибка при парсинге файла демозаписи.',
       error: err?.message || 'Ошибка при обработке файла демозаписи на сервере.'
     });
   } finally {
