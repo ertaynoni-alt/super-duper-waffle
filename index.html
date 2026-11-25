@@ -2437,15 +2437,39 @@
     setMsg('matchMsg', 'Матч добавлен в список. Автоматический анализ демо пока не выполняется.', 'ok');
   });
 
-  // --- SUPABASE AUTHENTICATION (без изменения логики) ---
+  // --- SUPABASE AUTHENTICATION (безопасное переключение экранов) ---
   const showUser = user => {
-    currentUser = user || null;
-    $('authArea').classList.toggle('hidden', !currentUser);
-    $('dashboard').classList.toggle('hidden', !currentUser);
-    $('userEmail').textContent = currentUser?.email || '';
-    if (currentUser) {
+    const nextUser = user || null;
+    const authEl = $('authArea');
+    const dashEl = $('dashboard');
+    const emailEl = $('userEmail');
+
+    if (!authEl || !dashEl) {
+      currentUser = nextUser;
+      return;
+    }
+
+    if (!nextUser) {
+      currentUser = null;
+      if (emailEl) emailEl.textContent = '';
+      dashEl.classList.add('hidden');
+      authEl.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      if (emailEl) emailEl.textContent = nextUser.email || '';
       renderMatches();
       updateServerChip();
+      currentUser = nextUser;
+      authEl.classList.add('hidden');
+      dashEl.classList.remove('hidden');
+    } catch (err) {
+      console.error('Dashboard render error in showUser:', err);
+      currentUser = null;
+      dashEl.classList.add('hidden');
+      authEl.classList.remove('hidden');
+      setMsg('loginMsg', 'Ошибка при открытии кабинета. Повторите вход.', 'error');
     }
   };
 
@@ -2508,9 +2532,31 @@
     showUser(null);
   });
 
-  const { data: { session } } = await supabase.auth.getSession();
-  showUser(session?.user || null);
-  supabase.auth.onAuthStateChange((_event, session) => showUser(session?.user || null));
+  let authInitializedFromSession = false;
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (!authInitializedFromSession && !session?.user) {
+      return;
+    }
+    showUser(session?.user || null);
+  });
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    authInitializedFromSession = true;
+    if (error) {
+      console.error('getSession error:', error);
+      showUser(null);
+      setMsg('loginMsg', 'Не удалось проверить сессию. Войдите в аккаунт вручную.', 'warn');
+    } else {
+      showUser(data?.session?.user || null);
+    }
+  } catch (err) {
+    authInitializedFromSession = true;
+    console.error('Auth session init error:', err);
+    showUser(null);
+    setMsg('loginMsg', 'Ошибка проверки сессии в браузере. Войдите в аккаунт вручную.', 'error');
+  }
 </script>
 </body>
 </html>
